@@ -98,7 +98,12 @@ export interface Evaluation {
   /** 0..1 progress toward the trigger. */
   progress: number;
   conditionMet: boolean;
+  /** Confirmations: fresh reference updates on the slower leg while the condition held. */
   streak: number;
+  /** Per-leg count of distinct reference updates seen while the condition held. */
+  legStreaks?: [number, number];
+  /** Reference publish times at this evaluation (from, to). */
+  refTimes?: [number, number];
   checks: Check[];
   blockedBy?: string;
   quote?: QuoteSummary;

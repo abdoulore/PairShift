@@ -29,6 +29,7 @@ const ALL_FEED_IDS = PYTH_FEED_IDS;
 const XSTOCKS = ASSETS.filter((a) => a.kind === "xstock");
 const PRESTOCKS = ASSETS.filter((a) => a.kind === "prestock");
 const PRESTOCKS_API = "https://prestocks.com/api/prestocks";
+type PreStocksRow = { contract_address: string; markPrice: number; tokenPrice: number };
 const ALWAYS_OPEN = { isOpen: true, nextOpen: null, nextClose: null };
 
 export class PriceService {
@@ -44,20 +45,27 @@ export class PriceService {
   private history = new Map<string, Sample[]>();
   private historyFile = path.join(config.dataDir, "history.json");
 
+  private preStocksFile = path.join(config.dataDir, "prestocks.json");
+
   constructor(private tokens: TokenState) {
     this.loadHistory();
+    this.loadPreStocks();
   }
 
   start() {
     const tick = () => this.poll().finally(() => setTimeout(tick, config.pollMs));
     tick();
-    // PreStocks rate-limits aggressive polling; back off after a 429.
+    // PreStocks rate-limits aggressive polling; back off 15s, 30s, then 60s after failures.
+    let failures = 0;
     const pre = () =>
       this.pollPreStocks()
-        .then(() => setTimeout(pre, 20_000))
+        .then(() => {
+          failures = 0;
+          setTimeout(pre, 20_000);
+        })
         .catch((e) => {
           if (!String(e.message).includes("429")) console.warn("PreStocks poll failed:", e.message);
-          setTimeout(pre, 60_000);
+          setTimeout(pre, [15_000, 30_000, 60_000][Math.min(failures++, 2)]);
         });
     pre();
     this.pollMarketHours();
@@ -184,8 +192,29 @@ export class PriceService {
   private async pollPreStocks() {
     const res = await fetch(PRESTOCKS_API, { signal: AbortSignal.timeout(8_000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const list = (await res.json()) as { contract_address: string; markPrice: number; tokenPrice: number }[];
+    const list = (await res.json()) as PreStocksRow[];
     const now = Math.floor(Date.now() / 1000);
+    this.applyPreStocks(list, now);
+    try {
+      fs.mkdirSync(config.dataDir, { recursive: true });
+      fs.writeFileSync(this.preStocksFile, JSON.stringify({ fetchedAt: now, list }));
+    } catch {
+      /* the snapshot only speeds up restarts */
+    }
+  }
+
+  // Restore the last PreStocks prices at startup with their original timestamp, so the UI has data
+  // immediately while the freshness check still refuses to trade on anything old.
+  private loadPreStocks() {
+    try {
+      const snap = JSON.parse(fs.readFileSync(this.preStocksFile, "utf8")) as { fetchedAt: number; list: PreStocksRow[] };
+      this.applyPreStocks(snap.list, snap.fetchedAt);
+    } catch {
+      /* no snapshot yet */
+    }
+  }
+
+  private applyPreStocks(list: PreStocksRow[], now: number) {
     for (const a of PRESTOCKS) {
       const p = list.find((x) => x.contract_address === a.mint);
       if (!p) continue;

@@ -240,13 +240,26 @@ export class Engine {
       store.touch();
       return;
     }
-    const fromRef = this.prices.ref(intent.from)?.price;
-    const toRef = this.prices.ref(intent.to)?.price;
-    if (!fromRef || !toRef) return;
+    const fromFeed = this.prices.ref(intent.from);
+    const toFeed = this.prices.ref(intent.to);
+    if (!fromFeed || !toFeed) return;
+    const fromRef = fromFeed.price;
+    const toRef = toFeed.price;
 
     const ratio = toRef / fromRef;
     const met = conditionMet(ratio, intent.triggerRatio, intent.direction);
-    const streak = met ? (intent.lastEval?.streak ?? 0) + 1 : 0;
+    // A confirmation only counts when each leg has a new reference price. One stale or bad tick
+    // (PreStocks marks update every ~20s; the engine runs every 2s) can't confirm itself.
+    const refTimes: [number, number] = [fromFeed.publishTime, toFeed.publishTime];
+    const prev = intent.lastEval;
+    const legStreaks: [number, number] = met
+      ? ([0, 1].map((i) =>
+          !prev?.conditionMet || !prev.legStreaks || !prev.refTimes
+            ? 1
+            : prev.legStreaks[i] + (refTimes[i] !== prev.refTimes[i] ? 1 : 0),
+        ) as [number, number])
+      : [0, 0];
+    const streak = Math.min(...legStreaks);
     const checks = this.marketChecks(intent.from, intent.to, intent.limits, intent.mode);
 
     // Quote only when it matters (condition met) or periodically for the dashboard.
@@ -271,6 +284,8 @@ export class Engine {
       progress: progress(ratio, intent.baseline.ratio, intent.direction, intent.thresholdPct),
       conditionMet: met,
       streak,
+      legStreaks,
+      refTimes,
       checks,
       blockedBy: met ? failing?.label : undefined,
       quote: q?.summary,
@@ -286,7 +301,7 @@ export class Engine {
     }
     if (met && failing) store.event(intent, "warn", `Condition met, waiting on: ${failing.label}`);
     if (met && !failing && streak < intent.limits.confirmations)
-      store.event(intent, "info", `Condition met (${streak}/${intent.limits.confirmations} confirmations)`);
+      store.event(intent, "info", `Condition met (${streak}/${intent.limits.confirmations} fresh price updates)`);
     if (met && !failing && streak >= intent.limits.confirmations) await this.execute(intent, q!);
   }
 
@@ -346,7 +361,7 @@ export class Engine {
         store.event(intent, "error", `Switch failed after ${n} attempts: ${msg}`);
       } else {
         intent.status = "armed";
-        intent.lastEval = { ...intent.lastEval!, streak: 0 };
+        intent.lastEval = { ...intent.lastEval!, streak: 0, legStreaks: [0, 0], conditionMet: false };
         store.event(intent, "warn", `Attempt ${n} failed, re-arming: ${msg}`);
       }
     } finally {
