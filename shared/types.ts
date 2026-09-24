@@ -1,0 +1,223 @@
+// "cheaper": the target gets cheaper relative to the source (to/from ratio falls).
+// "richer":  the target outperforms the source (to/from ratio rises).
+export type Direction = "cheaper" | "richer";
+
+export type Sizing = { kind: "usd"; usd: number } | { kind: "shares"; shares: number };
+
+export type Mode = "paper" | "live";
+
+// "auto":    the keeper switches for you (source token has no transfer fee, e.g. xStocks).
+// "confirm": when the trigger fires you confirm in one tap and the swap runs from your own wallet,
+//            so fee-charging tokens (PreStocks, 1% per transfer) aren't moved an extra time.
+export type ExecStyle = "auto" | "confirm";
+
+export interface Limits {
+  /** Max age of each Pyth reference price, seconds. */
+  maxStalenessSec: number;
+  /** xStocks: never sell below / buy above the Pyth equity price by more than this, basis points. */
+  maxPegDeviationBps: number;
+  /** Pre-IPO: never buy above / sell below the PreStocks mark by more than this, basis points. */
+  maxPrivatePremiumBps: number;
+  /** Max execution shortfall vs. token market prices, after known transfer fees, basis points. */
+  maxSlippageBps: number;
+  /** Max Pyth confidence interval / price for either reference, basis points. */
+  maxConfBps: number;
+  /** Consecutive evaluations the condition must hold before switching. */
+  confirmations: number;
+  /** Block switches this many hours around an xStock multiplier change (dividends, splits). */
+  corporateActionWindowHours: number;
+}
+
+/** Pre-IPO pools are thinner (about 1-2% spread), so switches touching one default to a wider limit. */
+export const PRE_IPO_SLIPPAGE_BPS = 250;
+
+export const DEFAULT_LIMITS: Limits = {
+  maxStalenessSec: 60,
+  maxPegDeviationBps: 150,
+  maxPrivatePremiumBps: 1000,
+  maxSlippageBps: 100,
+  maxConfBps: 50,
+  confirmations: 3,
+  corporateActionWindowHours: 12,
+};
+
+export interface IntentDraft {
+  from: string;
+  to: string;
+  sizing: Sizing;
+  direction: Direction;
+  thresholdPct: number;
+  mode: Mode;
+  limits: Limits;
+  expiresInDays: number;
+  text?: string;
+}
+
+export interface ParseResult {
+  draft: Partial<IntentDraft>;
+  missing: string[];
+  notes: string[];
+}
+
+export type CheckId =
+  | "source"
+  | "fresh"
+  | "market"
+  | "confidence"
+  | "peg"
+  | "private"
+  | "corporate"
+  | "paused"
+  | "balance"
+  | "delegation"
+  | "quote";
+
+export interface Check {
+  id: CheckId;
+  label: string;
+  ok: boolean;
+  detail: string;
+  /** Checks that only matter at execution time are skipped (ok=true, pending) until then. */
+  pending?: boolean;
+}
+
+export type IntentStatus =
+  | "awaiting_approval"
+  | "armed"
+  | "ready"
+  | "executing"
+  | "executed"
+  | "failed"
+  | "cancelled"
+  | "expired";
+
+export interface Evaluation {
+  at: number;
+  ratio: number;
+  changePct: number;
+  /** 0..1 progress toward the trigger. */
+  progress: number;
+  conditionMet: boolean;
+  streak: number;
+  checks: Check[];
+  blockedBy?: string;
+  quote?: QuoteSummary;
+}
+
+export interface QuoteSummary {
+  at: number;
+  inUi: number;
+  outUi: number;
+  fairOutUi: number;
+  shortfallBps: number;
+  /** Known token transfer fees on this route (PreStocks charge 1% per transfer), basis points. */
+  feeBps: number;
+  priceImpactPct: number;
+  route: string;
+}
+
+export interface Execution {
+  at: number;
+  paper: boolean;
+  signature?: string;
+  inUi: number;
+  outUi: number;
+  fairOutUi: number;
+  shortfallBps: number;
+  ratio: number;
+  route: string;
+  error?: string;
+}
+
+export interface IntentEvent {
+  at: number;
+  kind: "info" | "warn" | "success" | "error";
+  message: string;
+}
+
+export interface Intent {
+  id: string;
+  owner: string;
+  createdAt: number;
+  expiresAt: number;
+  text?: string;
+  from: string;
+  to: string;
+  sizing: Sizing;
+  amountRaw: string;
+  amountUi: number;
+  direction: Direction;
+  thresholdPct: number;
+  mode: Mode;
+  style: ExecStyle;
+  limits: Limits;
+  baseline: { ratio: number; fromRef: number; toRef: number; at: number };
+  triggerRatio: number;
+  status: IntentStatus;
+  approvalSignature?: string;
+  readyAt?: number;
+  lastEval?: Evaluation;
+  execution?: Execution;
+  events: IntentEvent[];
+}
+
+export type PriceSource = "pyth" | "fallback" | "prestocks";
+
+export interface AssetQuote {
+  ticker: string;
+  kind: "xstock" | "prestock";
+  ref?: { price: number; conf: number; publishTime: number };
+  token?: { price: number; conf: number; publishTime: number };
+  rate?: number;
+  multiplier?: number;
+  pendingMultiplier?: { value: number; effectiveAt: number };
+  paused?: boolean;
+  marketOpen?: boolean;
+  nextOpen?: number | null;
+  nextClose?: number | null;
+  pegBps?: number;
+  sources?: { ref: PriceSource; token: PriceSource; rate: PriceSource };
+  transferFeeBps?: number;
+}
+
+export interface MarketSnapshot {
+  source: "pyth" | "fallback";
+  sourceNote: string;
+  updatedAt: number;
+  assets: AssetQuote[];
+}
+
+export interface Status {
+  source: "pyth" | "fallback";
+  sourceNote: string;
+  /** Live switching allowed at all (one-tap confirm switches need only a wallet). */
+  liveEnabled: boolean;
+  /** Keeper ready for fully automatic switches. */
+  autoEnabled: boolean;
+  /** Why automatic switching is unavailable, if it is. */
+  liveBlockers: string[];
+  keeper?: { pubkey: string; sol: number };
+  rpc: string;
+}
+
+/** Exact object a wallet signs to authorize a live intent (fixed key order). */
+export function canonicalDraft(d: IntentDraft) {
+  return {
+    from: d.from,
+    to: d.to,
+    sizing: d.sizing.kind === "usd" ? { kind: "usd", usd: d.sizing.usd } : { kind: "shares", shares: d.sizing.shares },
+    direction: d.direction,
+    thresholdPct: d.thresholdPct,
+    mode: d.mode,
+    limits: {
+      maxStalenessSec: d.limits.maxStalenessSec,
+      maxPegDeviationBps: d.limits.maxPegDeviationBps,
+      maxPrivatePremiumBps: d.limits.maxPrivatePremiumBps,
+      maxSlippageBps: d.limits.maxSlippageBps,
+      maxConfBps: d.limits.maxConfBps,
+      confirmations: d.limits.confirmations,
+      corporateActionWindowHours: d.limits.corporateActionWindowHours,
+    },
+    expiresInDays: d.expiresInDays,
+  };
+}
