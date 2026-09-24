@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ArrowRight, ArrowSquareOut, CaretDown, CaretUp } from "@phosphor-icons/react";
 import { tokenSymbol } from "../../shared/assets";
 import { describeCondition, describeSizing, fmtNum } from "../../shared/math";
@@ -35,15 +35,14 @@ interface Props {
   onCancel: (i: Intent) => void;
   onConfirm: (i: Intent) => void;
   busyId?: string;
+  empty?: ReactNode;
 }
 
-export function IntentList({ intents, onCancel, onConfirm, busyId }: Props) {
+export function IntentList({ intents, onCancel, onConfirm, busyId, empty }: Props) {
   const [open, setOpen] = useState<string | null>(null);
   if (!intents.length) {
     return (
-      <div className="card empty">
-        No switches yet. Describe one above, check the plan, then arm it. Paper mode needs no wallet.
-      </div>
+      <div className="card empty">{empty ?? "No switches yet. Start one from New switch; paper mode needs no wallet."}</div>
     );
   }
   return (

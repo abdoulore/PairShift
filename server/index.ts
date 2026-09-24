@@ -104,6 +104,7 @@ app.get(
     return {
       source: prices.source,
       sourceNote: prices.sourceNote,
+      coverage: prices.coverage(),
       liveEnabled: config.liveExecution,
       autoEnabled: blockers.length === 0,
       liveBlockers: blockers,

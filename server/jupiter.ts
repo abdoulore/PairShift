@@ -19,14 +19,62 @@ function headers(): Record<string, string> {
   return h;
 }
 
-export async function getQuote(inputMint: string, outputMint: string, amountRaw: bigint | string, slippageBps: number): Promise<JupQuote> {
+// ---- rate limiting -----------------------------------------------------------
+// After a 429, pause all Jupiter calls briefly (5s, 10s, 20s, capped at 30s) instead of hammering it.
+let pausedUntil = 0;
+let backoffMs = 0;
+
+function onRateLimited() {
+  backoffMs = Math.min(30_000, backoffMs ? backoffMs * 2 : 5_000);
+  pausedUntil = Date.now() + backoffMs;
+}
+
+function assertNotPaused() {
+  if (Date.now() < pausedUntil) throw new Error(`Jupiter rate-limited, retrying in ${Math.ceil((pausedUntil - Date.now()) / 1000)}s`);
+}
+
+/** Parse a Jupiter response, turning rate limits and non-JSON errors into readable messages. */
+async function readJson<T>(res: Response, label: string): Promise<T> {
+  if (res.status === 429) {
+    onRateLimited();
+    throw new Error(`Jupiter rate-limited, retrying in ${Math.ceil(backoffMs / 1000)}s`);
+  }
+  const text = await res.text();
+  let body: (T & { error?: string }) | undefined;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new Error(`${label}: HTTP ${res.status} ${text.slice(0, 80)}`);
+  }
+  if (!res.ok || body?.error) throw new Error(`${label}: ${body?.error ?? `HTTP ${res.status}`}`);
+  backoffMs = 0;
+  return body as T;
+}
+
+// ---- quotes ----------------------------------------------------------------------
+// Identical quotes are shared for a few seconds across the engine and every open browser tab.
+const QUOTE_TTL_MS = 5_000;
+const quoteCache = new Map<string, { at: number; quote: Promise<JupQuote> }>();
+
+export async function getQuote(
+  inputMint: string,
+  outputMint: string,
+  amountRaw: bigint | string,
+  slippageBps: number,
+  fresh = false,
+): Promise<JupQuote> {
+  const key = `${inputMint}|${outputMint}|${amountRaw}|${slippageBps}`;
+  const hit = quoteCache.get(key);
+  if (!fresh && hit && Date.now() - hit.at < QUOTE_TTL_MS) return hit.quote;
+  assertNotPaused();
   const url =
     `${config.jupiterUrl}/quote?inputMint=${inputMint}&outputMint=${outputMint}` +
     `&amount=${amountRaw.toString()}&slippageBps=${slippageBps}&swapMode=ExactIn&maxAccounts=40`;
-  const res = await fetch(url, { headers: headers(), signal: AbortSignal.timeout(8_000) });
-  const body = (await res.json()) as JupQuote & { error?: string };
-  if (!res.ok || body.error) throw new Error(`Jupiter quote: ${body.error ?? res.status}`);
-  return body;
+  const quote = fetch(url, { headers: headers(), signal: AbortSignal.timeout(8_000) }).then((res) => readJson<JupQuote>(res, "Jupiter quote"));
+  quoteCache.set(key, { at: Date.now(), quote });
+  quote.catch(() => quoteCache.delete(key)); // never cache failures
+  if (quoteCache.size > 500) for (const [k, v] of quoteCache) if (Date.now() - v.at > QUOTE_TTL_MS) quoteCache.delete(k);
+  return quote;
 }
 
 export function routeLabel(q: JupQuote): string {
@@ -64,16 +112,14 @@ export async function getSwapInstructions(conn: Connection, quote: JupQuote, use
     }),
     signal: AbortSignal.timeout(10_000),
   });
-  const body = (await res.json()) as {
-    error?: string;
+  const body = await readJson<{
     computeBudgetInstructions: RawIx[];
     setupInstructions: RawIx[];
     swapInstruction: RawIx;
     cleanupInstruction?: RawIx;
     otherInstructions?: RawIx[];
     addressLookupTableAddresses: string[];
-  };
-  if (!res.ok || body.error) throw new Error(`Jupiter swap-instructions: ${body.error ?? res.status}`);
+  }>(res, "Jupiter swap-instructions");
 
   const alts: AddressLookupTableAccount[] = [];
   if (body.addressLookupTableAddresses.length) {
@@ -106,7 +152,7 @@ export async function getSwapTransaction(quote: JupQuote, user: string): Promise
     }),
     signal: AbortSignal.timeout(10_000),
   });
-  const body = (await res.json()) as { swapTransaction?: string; error?: string };
-  if (!res.ok || !body.swapTransaction) throw new Error(`Jupiter swap: ${body.error ?? res.status}`);
+  const body = await readJson<{ swapTransaction?: string }>(res, "Jupiter swap");
+  if (!body.swapTransaction) throw new Error("Jupiter swap: no transaction returned");
   return body.swapTransaction;
 }

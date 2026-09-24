@@ -9,7 +9,7 @@ const age = (t?: number) => {
 const usd = (n?: number) => (n === undefined ? "n/a" : `$${n.toFixed(2)}`);
 const bps = (n?: number) => (n === undefined ? "n/a" : `${n >= 0 ? "+" : ""}${n.toFixed(0)} bps`);
 const pct = (n?: number) => (n === undefined ? "n/a" : `${n >= 0 ? "+" : ""}${(n / 100).toFixed(1)}%`);
-const srcLabel = (s?: string) => (s === "pyth" ? "Pyth" : s === "prestocks" ? "PreStocks" : "Fallback");
+const srcLabel = (s?: string) => (s === "pyth" ? "Pyth" : s === "prestocks" ? "PreStocks" : s === "jupiter" ? "Backed via Jupiter" : "loading");
 
 function Skeleton({ cols }: { cols: number }) {
   return (
@@ -32,7 +32,18 @@ const Name = ({ a }: { a: AssetQuote }) => (
   </td>
 );
 
-export function MarketTable({ market }: { market?: MarketSnapshot }) {
+function Pick({ ticker, onPick }: { ticker: string; onPick?: (t: string) => void }) {
+  if (!onPick) return null;
+  return (
+    <td className="pick">
+      <button className="btn btn-ghost" onClick={() => onPick(ticker)}>
+        Switch into
+      </button>
+    </td>
+  );
+}
+
+export function MarketTable({ market, onPick }: { market?: MarketSnapshot; onPick?: (ticker: string) => void }) {
   const pub = market?.assets.filter((a) => a.kind === "xstock") ?? [];
   const pre = market?.assets.filter((a) => a.kind === "prestock") ?? [];
   return (
@@ -51,6 +62,7 @@ export function MarketTable({ market }: { market?: MarketSnapshot }) {
                 <th>Token price</th>
                 <th>Premium to mark</th>
                 <th>Transfer fee</th>
+                {onPick && <th aria-label="Actions" />}
               </tr>
             </thead>
             <tbody>
@@ -61,6 +73,7 @@ export function MarketTable({ market }: { market?: MarketSnapshot }) {
                   <td>{usd(a.token?.price)}</td>
                   <td>{pct(a.pegBps)}</td>
                   <td>{a.transferFeeBps ? `${(a.transferFeeBps / 100).toFixed(0)}%` : "none"}</td>
+                  <Pick ticker={a.ticker} onPick={onPick} />
                 </tr>
               ))}
               {!market && <Skeleton cols={5} />}
@@ -72,7 +85,7 @@ export function MarketTable({ market }: { market?: MarketSnapshot }) {
       <div className="card">
         <div className="card-head">
           <h2>Public stocks: xStocks vs. the real share price</h2>
-          <span className="sub">Reference from {pub.some((a) => a.sources?.ref === "pyth") ? "Pyth where entitled" : "fallback"}</span>
+          <span className="sub">Reference: Pyth where the API key has access, otherwise Backed via Jupiter (paper only)</span>
         </div>
         <div className="table-wrap" style={{ marginTop: 8 }}>
           <table className="market">
@@ -84,6 +97,7 @@ export function MarketTable({ market }: { market?: MarketSnapshot }) {
                 <th>xStock</th>
                 <th>Premium</th>
                 <th>Reference age</th>
+                {onPick && <th aria-label="Actions" />}
               </tr>
             </thead>
             <tbody>
@@ -91,10 +105,11 @@ export function MarketTable({ market }: { market?: MarketSnapshot }) {
                 <tr key={a.ticker}>
                   <Name a={a} />
                   <td>{usd(a.ref?.price)}</td>
-                  <td>{srcLabel(a.sources?.ref)}</td>
+                  <td className="txt">{srcLabel(a.sources?.ref)}</td>
                   <td>{usd(a.token?.price)}</td>
                   <td>{bps(a.pegBps)}</td>
                   <td>{age(a.ref?.publishTime)}</td>
+                  <Pick ticker={a.ticker} onPick={onPick} />
                 </tr>
               ))}
               {!market && <Skeleton cols={6} />}

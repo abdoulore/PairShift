@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ASSETS, PYTH_FEED_IDS } from "../shared/assets";
-import type { AssetQuote, MarketSnapshot, PriceSource } from "../shared/types";
+import type { AssetQuote, Coverage, MarketSnapshot, PriceSource } from "../shared/types";
 import { config } from "./config";
 import type { TokenState } from "./tokenState";
 
@@ -21,6 +21,7 @@ interface MarketHours {
 type Sample = [number, number, number];
 
 const HISTORY_STEP_S = 30;
+const JUPITER_PRICE_EVERY_MS = 10_000;
 const valid = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n > 0;
 const HISTORY_KEEP_S = 3 * 86_400;
 const PUBLIC_HERMES = "https://hermes.pyth.network";
@@ -33,14 +34,15 @@ type PreStocksRow = { contract_address: string; markPrice: number; tokenPrice: n
 const ALWAYS_OPEN = { isOpen: true, nextOpen: null, nextClose: null };
 
 export class PriceService {
-  source: "pyth" | "fallback" = "fallback";
-  sourceNote = config.pythApiKey ? "Connecting to Pyth" : "No PYTH_API_KEY - fallback prices; live switching disabled";
+  source: "pyth" | "mixed" = "mixed";
+  sourceNote = config.pythApiKey ? "Connecting to Pyth" : "No PYTH_API_KEY - xStocks priced by Backed via Jupiter (paper only)";
   updatedAt = 0;
   private feeds = new Map<string, FeedPrice>();
   private feedSource = new Map<string, PriceSource>();
   private entitled = new Set<string>();
   private denied = 0;
   private pythError?: string;
+  private lastJupiterPoll = 0;
   private hours = new Map<string, MarketHours>();
   private history = new Map<string, Sample[]>();
   private historyFile = path.join(config.dataDir, "history.json");
@@ -117,9 +119,11 @@ export class PriceService {
       }
     }
     const skip = pythOk ? this.entitled : new Set<string>();
-    if (skip.size < ALL_FEED_IDS.length) {
+    // Jupiter shares one rate limit with quotes, and Backed prices move every few minutes: poll every 10s.
+    if (skip.size < ALL_FEED_IDS.length && Date.now() - this.lastJupiterPoll >= JUPITER_PRICE_EVERY_MS) {
+      this.lastJupiterPoll = Date.now();
       try {
-        await this.pollFallback(skip);
+        await this.pollJupiter(skip);
       } catch (e) {
         if (!pythOk) this.sourceNote = `All price sources failing: ${(e as Error).message}`;
       }
@@ -130,19 +134,19 @@ export class PriceService {
   private describeSource() {
     const refsOnPyth = XSTOCKS.filter((a) => this.feedSource.get(a.feeds.ref) === "pyth").length;
     if (!config.pythApiKey) {
-      this.source = "fallback";
-      this.sourceNote = "No PYTH_API_KEY - fallback prices; live switching disabled";
+      this.source = "mixed";
+      this.sourceNote = "No PYTH_API_KEY - xStocks priced by Backed via Jupiter (paper only)";
     } else if (this.pythError) {
-      this.source = "fallback";
-      this.sourceNote = `Pyth unavailable (${this.pythError}) - fallback prices; live switching disabled`;
+      this.source = "mixed";
+      this.sourceNote = `Pyth unavailable (${this.pythError}) - xStocks priced by Backed via Jupiter (paper only)`;
     } else if (refsOnPyth === XSTOCKS.length) {
       this.source = "pyth";
       this.sourceNote = "Pyth Hermes";
     } else {
-      this.source = "fallback";
+      this.source = "mixed";
       this.sourceNote =
         this.denied > 0
-          ? `Pyth key is not entitled to ${this.denied} of ${ALL_FEED_IDS.length} feeds (US equities / xStocks). Accept those feed grants in Pyth Terminal; fallback prices fill the gap meanwhile.`
+          ? `Pyth key is not entitled to ${this.denied} of ${ALL_FEED_IDS.length} feeds (US equities / xStocks). Accept those feed grants in Pyth Terminal; Backed prices via Jupiter fill the gap (paper only).`
           : "Checking Pyth feed entitlements";
     }
   }
@@ -164,10 +168,13 @@ export class PriceService {
     this.updatedAt = Date.now();
   }
 
-  // Fallback for feeds Pyth can't serve with this key: Jupiter reports both the xStock price and
-  // the issuer's underlying stock price. Clearly labeled, and live execution refuses to run on it.
-  private async pollFallback(skip: Set<string>) {
-    const res = await fetch(`https://lite-api.jup.ag/price/v3?ids=${XSTOCKS.map((a) => a.mint).join(",")}`, {
+  // For feeds Pyth can't serve with this key: Jupiter's price API reports the xStock's market price
+  // and the underlying share price published by Backed (the issuer). It lags by minutes, so it is
+  // labeled as its own source and live execution refuses to run on it.
+  private async pollJupiter(skip: Set<string>) {
+    // Same host as the swap API: api.jup.ag with JUPITER_API_KEY, or the keyless lite-api.
+    const res = await fetch(`${new URL(config.jupiterUrl).origin}/price/v3?ids=${XSTOCKS.map((a) => a.mint).join(",")}`, {
+      headers: config.jupiterApiKey ? { "x-api-key": config.jupiterApiKey } : {},
       signal: AbortSignal.timeout(5_000),
     });
     if (!res.ok) throw new Error(`Jupiter price HTTP ${res.status}`);
@@ -176,7 +183,7 @@ export class PriceService {
     const put = (id: string, v: FeedPrice) => {
       if (skip.has(id)) return;
       this.feeds.set(id, v);
-      this.feedSource.set(id, "fallback");
+      this.feedSource.set(id, "jupiter");
     };
     for (const a of XSTOCKS) {
       const p = body[a.mint];
@@ -227,8 +234,18 @@ export class PriceService {
   }
 
   /** Where an asset's real-world reference price is coming from right now. */
-  refSource(ticker: string): PriceSource {
-    return this.feedSource.get(ASSETS.find((a) => a.ticker === ticker)!.feeds.ref) ?? "fallback";
+  refSource(ticker: string): PriceSource | undefined {
+    return this.feedSource.get(ASSETS.find((a) => a.ticker === ticker)!.feeds.ref);
+  }
+
+  /** Tickers grouped by the source of their reference price. */
+  coverage(): Coverage {
+    const out: Coverage = {};
+    for (const a of ASSETS) {
+      const src = this.feedSource.get(a.feeds.ref);
+      if (src) (out[src] ??= []).push(a.ticker);
+    }
+    return out;
   }
 
   private async pollMarketHours() {
@@ -292,15 +309,21 @@ export class PriceService {
       nextClose: hours?.nextClose,
       pegBps: ref && token ? (token.price / ref.price - 1) * 10_000 : undefined,
       sources: {
-        ref: this.feedSource.get(a.feeds.ref) ?? "fallback",
-        token: this.feedSource.get(a.feeds.token) ?? "fallback",
-        rate: this.feedSource.get(a.feeds.rate) ?? "fallback",
+        ref: this.feedSource.get(a.feeds.ref),
+        token: this.feedSource.get(a.feeds.token),
+        rate: this.feedSource.get(a.feeds.rate),
       },
     };
   }
 
   snapshot(): MarketSnapshot {
-    return { source: this.source, sourceNote: this.sourceNote, updatedAt: this.updatedAt, assets: ASSETS.map((a) => this.quote(a.ticker)) };
+    return {
+      source: this.source,
+      sourceNote: this.sourceNote,
+      coverage: this.coverage(),
+      updatedAt: this.updatedAt,
+      assets: ASSETS.map((a) => this.quote(a.ticker)),
+    };
   }
 
   // ---- history -------------------------------------------------------------

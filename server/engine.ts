@@ -42,7 +42,8 @@ export class Engine {
       { t: from, side: "sell" as const, kind: getAsset(from).kind, src: this.prices.refSource(from), ref: this.prices.ref(from), q: this.prices.quote(from) },
       { t: to, side: "buy" as const, kind: getAsset(to).kind, src: this.prices.refSource(to), ref: this.prices.ref(to), q: this.prices.quote(to) },
     ];
-    const srcLabel = (l: (typeof legs)[number]) => (l.src === "pyth" ? "Pyth" : l.src === "prestocks" ? "PreStocks mark" : "fallback");
+    const srcLabel = (l: (typeof legs)[number]) =>
+      l.src === "pyth" ? "Pyth" : l.src === "prestocks" ? "PreStocks mark" : l.src === "jupiter" ? "Backed via Jupiter" : "loading";
 
     // Live switching only runs on authoritative references: Pyth for public equities, PreStocks marks for pre-IPO.
     const authoritative = legs.every((l) => l.src === "pyth" || l.src === "prestocks");
@@ -52,14 +53,14 @@ export class Engine {
       ok: authoritative || mode === "paper",
       detail:
         legs.map((l) => `${l.t}: ${srcLabel(l)}`).join(" · ") +
-        (authoritative ? "" : mode === "paper" ? " (paper only)" : " - Pyth equity grant missing, live blocked"),
+        (authoritative ? "" : mode === "paper" ? " (paper only)" : " - live needs Pyth or PreStocks prices"),
     });
 
     const ages = legs.map((l) => (l.ref ? age(l.ref.publishTime) : Infinity));
-    // Fallback stock prices refresh every few minutes; tolerate that in paper mode only.
+    // Backed prices via Jupiter refresh every few minutes; tolerate that in paper mode only.
     // PreStocks marks move slowly and their API is polled every 20s, so allow up to 3 minutes.
     const maxAge = (l: (typeof legs)[number]) =>
-      l.src === "fallback" && mode === "paper"
+      l.src === "jupiter" && mode === "paper"
         ? Math.max(limits.maxStalenessSec, 900)
         : l.src === "prestocks"
           ? Math.max(limits.maxStalenessSec, 180)
@@ -143,7 +144,7 @@ export class Engine {
    * Token-2022 transfer fees (PreStocks: 1% per transfer). Valuation vs. the real-world reference is
    * handled separately by the peg / pre-IPO checks.
    */
-  async quoteSwitch(from: string, to: string, amountRaw: bigint, style: ExecStyle, slippageBps = 50) {
+  async quoteSwitch(from: string, to: string, amountRaw: bigint, style: ExecStyle, slippageBps = 50, fresh = false) {
     const src = getAsset(from);
     const dst = getAsset(to);
     const pull = style === "auto"; // auto switches: the keeper pulls from the owner first
@@ -153,7 +154,7 @@ export class Engine {
     // way into the pool (measured: exactly 1% short for PreStocks inputs). Account for it ourselves,
     // and widen the on-chain minimum-out by that known fee so only real slippage counts against it.
     const srcFeeBps = this.tokens.feeBps(from);
-    const raw = await getQuote(src.mint, dst.mint, netIn, slippageBps + srcFeeBps);
+    const raw = await getQuote(src.mint, dst.mint, netIn, slippageBps + srcFeeBps, fresh);
     const fromTok = this.prices.token(from)?.price;
     const toTok = this.prices.token(to)?.price;
     if (!fromTok || !toTok) throw new Error("Missing token prices");
@@ -340,7 +341,7 @@ export class Engine {
       // Leave only the slippage budget the fair-value limit still allows, so the on-chain
       // minimum-out enforces the user's limit even if the market moves mid-flight.
       const budget = Math.max(10, Math.min(100, Math.floor(intent.limits.maxSlippageBps - Math.max(0, q.summary.shortfallBps))));
-      const fresh = await this.quoteSwitch(intent.from, intent.to, BigInt(intent.amountRaw), "auto", budget);
+      const fresh = await this.quoteSwitch(intent.from, intent.to, BigInt(intent.amountRaw), "auto", budget, true);
       if (fresh.summary.shortfallBps > intent.limits.maxSlippageBps) throw new Error(`Quote moved: ${fresh.summary.shortfallBps.toFixed(0)} bps below fair value`);
 
       const owner = new PublicKey(intent.owner);
@@ -378,12 +379,12 @@ export class Engine {
     if (!fromRef || !toRef || !conditionMet(toRef / fromRef, intent.triggerRatio, intent.direction)) throw new Error("The trigger condition no longer holds");
     const checks = this.marketChecks(intent.from, intent.to, intent.limits, intent.mode);
     checks.push(await this.balanceCheck(intent, true));
-    const first = await this.quoteSwitch(intent.from, intent.to, BigInt(intent.amountRaw), "confirm");
+    const first = await this.quoteSwitch(intent.from, intent.to, BigInt(intent.amountRaw), "confirm", 50, true);
     checks.push(this.quoteCheck(first.summary, intent.limits));
     const failing = checks.find((c) => !c.ok);
     if (failing) throw new Error(`${failing.label}: ${failing.detail}`);
     const budget = Math.max(10, Math.min(100, Math.floor(intent.limits.maxSlippageBps - Math.max(0, first.summary.shortfallBps))));
-    const fresh = await this.quoteSwitch(intent.from, intent.to, BigInt(intent.amountRaw), "confirm", budget);
+    const fresh = await this.quoteSwitch(intent.from, intent.to, BigInt(intent.amountRaw), "confirm", budget, true);
     const tx = await getSwapTransaction(fresh.raw, intent.owner);
     this.quotes.set(intent.id, fresh);
     return { tx, quote: fresh.summary };

@@ -166,7 +166,11 @@ export interface Intent {
   events: IntentEvent[];
 }
 
-export type PriceSource = "pyth" | "fallback" | "prestocks";
+/** Where a price comes from: Pyth, PreStocks, or Jupiter (xStock market price plus Backed's stock price). */
+export type PriceSource = "pyth" | "prestocks" | "jupiter";
+
+/** Tickers grouped by the source of their reference price. */
+export type Coverage = Partial<Record<PriceSource, string[]>>;
 
 export interface AssetQuote {
   ticker: string;
@@ -181,19 +185,22 @@ export interface AssetQuote {
   nextOpen?: number | null;
   nextClose?: number | null;
   pegBps?: number;
-  sources?: { ref: PriceSource; token: PriceSource; rate: PriceSource };
+  sources?: { ref?: PriceSource; token?: PriceSource; rate?: PriceSource };
   transferFeeBps?: number;
 }
 
 export interface MarketSnapshot {
-  source: "pyth" | "fallback";
+  /** "pyth" when every xStock reference comes from Pyth, otherwise "mixed". */
+  source: "pyth" | "mixed";
+  coverage: Coverage;
   sourceNote: string;
   updatedAt: number;
   assets: AssetQuote[];
 }
 
 export interface Status {
-  source: "pyth" | "fallback";
+  source: "pyth" | "mixed";
+  coverage: Coverage;
   sourceNote: string;
   /** Live switching allowed at all (one-tap confirm switches need only a wallet). */
   liveEnabled: boolean;

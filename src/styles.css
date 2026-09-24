@@ -94,6 +94,30 @@ a:hover { text-decoration: underline; }
 .wallet-adapter-button:not([disabled]):hover { background: var(--ink-2) !important; }
 .wallet-adapter-button-start-icon { width: 18px !important; height: 18px !important; margin-right: 8px !important; }
 
+
+/* App navigation */
+a.brand { color: var(--ink); }
+a.brand:hover { text-decoration: none; }
+.appnav { display: flex; gap: 4px; margin-left: 20px; }
+.appnav a { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 8px; color: var(--ink-2); font-weight: 550; font-size: 13.5px; }
+.appnav a:hover { color: var(--ink); background: var(--surface-2); text-decoration: none; }
+.appnav a.active { color: var(--ink); background: var(--surface-2); }
+.appnav .count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700; display: inline-grid; place-items: center; }
+@media (max-width: 1080px) { .chip.hide-md { display: none; } }
+@media (max-width: 720px) {
+  .topbar { flex-wrap: wrap; height: auto; padding-top: 10px; padding-bottom: 10px; row-gap: 8px; }
+  .appnav { order: 3; width: 100%; margin-left: 0; overflow-x: auto; }
+}
+
+/* App page headers */
+.page-head { margin-bottom: 20px; }
+.page-head h1 { font-size: 26px; letter-spacing: -0.02em; margin: 0 0 4px; font-weight: 650; }
+.page-head p { margin: 0; color: var(--ink-2); }
+.page-head.row { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.section-title.first { margin-top: 12px; }
+table.market td.pick { padding-top: 4px; padding-bottom: 4px; }
+table.market td.pick .btn, table.market td.txt { font-family: var(--font); }
+
 /* Page */
 .page { max-width: 1240px; margin: 0 auto; padding: 28px 24px 64px; }
 .intro { max-width: 760px; margin-bottom: 20px; }
