@@ -5,7 +5,7 @@ import { useAppData } from "../state/AppData";
 import { BrandMark } from "./Brand";
 
 const SOURCE_SHORT = { pyth: "Pyth", prestocks: "PreStocks", jupiter: "Jupiter" } as const;
-const SOURCE_LONG = { pyth: "Pyth", prestocks: "PreStocks", jupiter: "Backed via Jupiter (paper only)" } as const;
+const SOURCE_LONG = { pyth: "Pyth", prestocks: "PreStocks", jupiter: "Backed via Jupiter (paper mode)" } as const;
 const ORDER = ["pyth", "prestocks", "jupiter"] as const;
 
 export function AppShell() {

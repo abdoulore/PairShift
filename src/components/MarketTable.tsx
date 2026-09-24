@@ -85,7 +85,7 @@ export function MarketTable({ market, onPick }: { market?: MarketSnapshot; onPic
       <div className="card">
         <div className="card-head">
           <h2>Public stocks: xStocks vs. the real share price</h2>
-          <span className="sub">Reference: Pyth where the API key has access, otherwise Backed via Jupiter (paper only)</span>
+          <span className="sub">Reference source shown per stock; live switches run on Pyth</span>
         </div>
         <div className="table-wrap" style={{ marginTop: 8 }}>
           <table className="market">

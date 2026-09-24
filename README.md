@@ -42,7 +42,7 @@ PairShift handles all three.
    | Execution within slippage | A quote worse than market prices, after the known transfer fees |
    | Funds approved / wallet balance | Switches the wallet can't cover |
 
-   The trigger must also hold across **3 fresh price updates on each leg**, so one bad tick can't fire a switch.
+   The trigger must also hold across **3 fresh price updates on each leg**, so one bad tick can't fire a switch. PairShift also warns before you arm when fees and spread would eat most of the move, and pre-IPO pairs default to a 2.5% slippage limit to match their thinner pools.
 5. **It executes in one of two ways:**
    - **Automatic** (source is an xStock): you sign one SPL approval for the exact amount. When the trigger fires, a keeper sends one atomic transaction: pull the approved amount, swap through Jupiter with a hard minimum out, and deliver the new stock straight into your wallet. If any step fails, nothing moves.
    - **One tap** (source is a PreStocks token): moving it through the keeper would cost an extra 1% transfer fee, so PairShift doesn't. When everything passes, the switch shows as *Ready*. You press Confirm, PairShift re-runs every check, and you sign a fresh swap from your own wallet.
@@ -59,7 +59,7 @@ The live paths were dry-run with `simulateTransaction` against current mainnet s
 | Automatic | TSLAx → SpaceX | Received 16,471,098 raw SpaceX vs 16,470,950 quoted; new Token-2022 account created in the same transaction |
 | One tap | OpenAI → Anthropic | Received 18,835,497 vs 18,835,427 predicted after the 1% input fee |
 
-Testing surfaced one pricing detail that PairShift now handles: Jupiter quotes include a Token-2022 transfer fee on the output token but not on the input token.
+PairShift also corrects for a quoting gap it found: Jupiter quotes include a Token-2022 transfer fee on the output token but not on the input token, so PairShift prices the input fee itself and widens the on-chain minimum out by exactly that fee.
 
 ## Architecture
 
@@ -106,18 +106,25 @@ npx tsx scripts/sim-confirm.ts OPENAI ANTHROPIC 0.01   # dry-run a one-tap switc
 
 | Variable | Purpose |
 |---|---|
-| `PYTH_API_KEY` | Pyth Hermes key (Bearer). xStocks whose Pyth feeds your key can't read are priced by Backed via Jupiter instead, and those pairs stay paper-only. |
+| `PYTH_API_KEY` | Pyth Hermes key (Bearer). PairShift detects which feeds the key can read; any other xStock is priced by Backed via Jupiter and runs in paper mode. |
 | `PYTH_HERMES_URL` | Defaults to `https://pyth.dourolabs.app/hermes` |
 | `SOLANA_RPC_URL` | Mainnet RPC; the public endpoint works for demos |
 | `JUPITER_API_URL`, `JUPITER_API_KEY` | Defaults to the keyless `lite-api.jup.ag` |
 | `KEEPER_SECRET_KEY` | Keeper wallet, created by `npm run keygen` |
 | `LIVE_EXECUTION` | Set to `false` to disable all real switches |
 
-## Limitations
+## Security model
 
-- **Keeper trust.** For automatic switches, the keeper is an SPL delegate for the exact approved amount. It can only move what you approved, and the switch is one atomic transaction, but a malicious operator could misuse an open approval. An on-chain program that enforces the swap would remove that trust; it is the next step.
-- **Pyth entitlements.** Pyth Hermes now requires an API key, and feeds are granted per key. With a key limited to a few equities, other xStocks are priced by Backed via the Jupiter price API, which lags by minutes, so those pairs stay paper-only.
-- **Pre-IPO costs.** Pre-IPO pools are thinner than xStock pools, so switches touching them default to a 2.5% slippage limit, and PairShift warns when fees and spread would eat most of a trigger.
-- **One-tap switches** fire only while you are around to confirm. In this version that means in-app and browser notifications while the page is open.
-- **Eligibility.** xStocks and PreStocks are generally not available to US persons; check each issuer's terms.
-- **Hackathon software.** The code is unaudited. Use small amounts.
+- **Your stock stays in your wallet until the switch.** Automatic switches use a standard SPL approval capped at the exact amount of one token. Nothing else in the wallet is reachable, and the approval can be revoked at any time, from PairShift or any wallet.
+- **One atomic transaction.** The approved amount is pulled, swapped through Jupiter with an on-chain minimum out, and delivered straight to your wallet's token account. If any step fails, the whole transaction reverts.
+- **Only you can arm or cancel.** Live switches and cancellations are authorized by a signature from your wallet, so no one can arm a switch against your approval.
+- **One-tap switches grant no approval at all.** You sign the swap yourself when it's ready.
+- **The keeper holds only SOL** for network fees.
+
+## Roadmap
+
+- **On-chain switch program.** Enforce the trigger and the swap in a Solana program with on-chain Pyth price verification, so an approval can only ever execute the switch it was given for.
+- **Push notifications** for one-tap switches on mobile.
+- **Multi-leg rotations**, such as moving out of an index into a basket of names.
+
+Availability: xStocks and PreStocks are offered by their issuers outside the US; see their terms for eligibility.

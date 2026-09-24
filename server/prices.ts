@@ -104,7 +104,7 @@ export class PriceService {
     }
     this.entitled = ok;
     this.denied = denied;
-    console.log(`Pyth entitlements: ${ok.size}/${ALL_FEED_IDS.length} feeds readable${denied ? `, ${denied} not entitled` : ""}`);
+    console.log(`Pyth entitlements: ${ok.size}/${ALL_FEED_IDS.length} feeds readable${denied ? `, ${denied} not entitled (accept the feed grants in Pyth Terminal)` : ""}`);
   }
 
   private async poll() {
@@ -144,10 +144,7 @@ export class PriceService {
       this.sourceNote = "Pyth Hermes";
     } else {
       this.source = "mixed";
-      this.sourceNote =
-        this.denied > 0
-          ? `Pyth key is not entitled to ${this.denied} of ${ALL_FEED_IDS.length} feeds (US equities / xStocks). Accept those feed grants in Pyth Terminal; Backed prices via Jupiter fill the gap (paper only).`
-          : "Checking Pyth feed entitlements";
+      this.sourceNote = this.denied > 0 ? "Live switches run on Pyth references; other xStocks run in paper mode." : "Connecting to Pyth";
     }
   }
 

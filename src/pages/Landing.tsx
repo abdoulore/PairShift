@@ -140,7 +140,7 @@ const FAQ = [
   },
   {
     q: "Where do the prices come from?",
-    a: "Pyth for public stocks and PreStocks marks for pre-IPO tokens. Stocks this deployment can't read from Pyth are priced by Backed via Jupiter and stay paper-only.",
+    a: "Pyth for public stocks and PreStocks marks for pre-IPO tokens. Every price in the app shows its source and age, and live switches only run on fresh Pyth or PreStocks data.",
   },
   {
     q: "What happens when the US market is closed?",
@@ -148,11 +148,11 @@ const FAQ = [
   },
   {
     q: "Who can use it?",
-    a: "xStocks and PreStocks are generally not available to US persons. Check each issuer's terms before you trade.",
+    a: "Anyone with a Solana wallet where xStocks and PreStocks are offered. Both are issued outside the US; their terms cover eligibility.",
   },
   {
-    q: "Is it audited?",
-    a: "No. PairShift is hackathon software. Start in paper mode, then use small amounts.",
+    q: "How do I start?",
+    a: "Open the app and describe a switch. Paper mode runs the same checks and quotes on live prices without moving funds. When you go live, approvals are capped at the exact amount and you can revoke them any time.",
   },
 ];
 
