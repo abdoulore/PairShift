@@ -44,5 +44,5 @@ export const api = {
     call<{ intent: Intent; revokeTx?: string }>(`/intents/${id}/cancel`, body),
   swapTx: (id: string, owner: string) => call<{ tx: string; quote: QuoteSummary }>(`/intents/${id}/swap-tx`, { owner }),
   executed: (id: string, signedTx: string) => call<{ intent: Intent }>(`/intents/${id}/executed`, { signedTx }),
-  submit: (signedTx: string) => call<{ signature: string }>("/tx/submit", { signedTx }),
+  revoke: (id: string, signedTx: string) => call<{ signature: string }>(`/intents/${id}/revoke`, { signedTx }),
 };

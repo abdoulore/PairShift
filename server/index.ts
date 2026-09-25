@@ -2,7 +2,9 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import express, { type Request, type Response } from "express";
-import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import { rateLimit } from "express-rate-limit";
+import { LAMPORTS_PER_SOL, PublicKey, VersionedTransaction } from "@solana/web3.js";
+import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { ASSETS, ASSET_BY_TICKER, getAsset, tokenSymbol } from "../shared/assets";
 import { pairRatio, rawFromUi, sharesForSizing, triggerRatio, uiFromRaw } from "../shared/math";
 import { parseIntent } from "../shared/parser";
@@ -11,7 +13,7 @@ import { cancelMessage, intentMessage, verify } from "./auth";
 import { config } from "./config";
 import { Engine } from "./engine";
 import { PriceService } from "./prices";
-import { buildApprovalTx, buildRevokeTx, conn, submitSigned, tokenAccountState } from "./solana";
+import { ata, buildApprovalTx, buildRevokeTx, conn, submitSigned, tokenAccountState } from "./solana";
 import { store } from "./store";
 import { TokenState } from "./tokenState";
 
@@ -24,6 +26,18 @@ engine.start();
 
 const app = express();
 app.use(express.json({ limit: "100kb" }));
+
+// Per-IP limits protect the upstream quotas (Jupiter, RPC, PreStocks) behind a public URL.
+// Behind a reverse proxy on the same host, trust it for the client IP.
+app.set("trust proxy", "loopback");
+const limit = (perMinute: number) =>
+  rateLimit({ windowMs: 60_000, limit: perMinute, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Too many requests, slow down a little" } });
+app.use("/api", limit(600));
+app.use("/api/preview", limit(60));
+app.use("/api/parse", limit(60));
+app.use("/api/pair", limit(60));
+app.post("/api/intents", limit(10));
+app.use("/api/intents/:id", limit(20));
 
 type Handler = (req: Request, res: Response) => Promise<unknown> | unknown;
 const route = (fn: Handler) => async (req: Request, res: Response) => {
@@ -182,9 +196,9 @@ app.post(
       quote,
       balanceUi,
       style,
-      // Warn when known token fees would eat most of the move the user is waiting for.
+      // Warn when fees and spread would eat most (over half) of the move the user is waiting for.
       thinTrigger:
-        quote && quote.feeBps > 0 && d.thresholdPct < (3 * (quote.feeBps + Math.max(0, quote.shortfallBps))) / 100
+        quote && quote.feeBps > 0 && d.thresholdPct < (2 * (quote.feeBps + Math.max(0, quote.shortfallBps))) / 100
           ? (quote.feeBps + Math.max(0, quote.shortfallBps)) / 100
           : undefined,
     };
@@ -312,9 +326,23 @@ app.post(
   }),
 );
 
+// Submits only the owner-signed transaction that shrinks the keeper's approval after a cancel.
 app.post(
-  "/api/tx/submit",
-  route(async (req) => ({ signature: await submitSigned(String(req.body?.signedTx ?? "")) })),
+  "/api/intents/:id/revoke",
+  route(async (req) => {
+    const intent = store.get(String(req.params.id));
+    if (!intent) throw new Error("Unknown intent");
+    if (intent.mode !== "live" || intent.style !== "auto" || intent.status !== "cancelled") throw new Error("Nothing to revoke for this switch");
+    const tx = VersionedTransaction.deserialize(Buffer.from(String(req.body?.signedTx ?? ""), "base64"));
+    const keys = tx.message.staticAccountKeys;
+    if (!keys[0]?.equals(new PublicKey(intent.owner))) throw new Error("Revoke must be paid and signed by the owner");
+    const source = ata(new PublicKey(intent.owner), getAsset(intent.from).mint);
+    const touchesApproval = tx.message.compiledInstructions.some(
+      (ix) => keys[ix.programIdIndex]?.equals(TOKEN_2022_PROGRAM_ID) && ix.accountKeyIndexes.some((k) => keys[k]?.equals(source)),
+    );
+    if (!touchesApproval) throw new Error("Not a revoke for this switch");
+    return { signature: await submitSigned(String(req.body.signedTx)) };
+  }),
 );
 
 // ---- static frontend (production) ----------------------------------------------

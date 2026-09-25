@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { getAsset, tokenSymbol } from "../shared/assets";
 import { changePct, conditionMet, fmtNum, progress, shortfallBps, uiFromRaw } from "../shared/math";
-import type { Check, ExecStyle, Intent, Limits, Mode, QuoteSummary } from "../shared/types";
+import type { Check, ExecStyle, Execution, Intent, Limits, Mode, QuoteSummary, RefSnapshot } from "../shared/types";
 import { config } from "./config";
 import { getQuote, getSwapTransaction, routeLabel, type JupQuote } from "./jupiter";
 import type { PriceService } from "./prices";
@@ -155,8 +155,9 @@ export class Engine {
     // and widen the on-chain minimum-out by that known fee so only real slippage counts against it.
     const srcFeeBps = this.tokens.feeBps(from);
     const raw = await getQuote(src.mint, dst.mint, netIn, slippageBps + srcFeeBps, fresh);
-    const fromTok = this.prices.token(from)?.price;
-    const toTok = this.prices.token(to)?.price;
+    // Fair value from on-chain DEX prices when available, so a stale posted price can't read as slippage.
+    const fromTok = this.prices.dexPrice(from) ?? this.prices.token(from)?.price;
+    const toTok = this.prices.dexPrice(to) ?? this.prices.token(to)?.price;
     if (!fromTok || !toTok) throw new Error("Missing token prices");
     const inUi = uiFromRaw(amountRaw, src.decimals, this.tokens.multiplier(from));
     const outUi = uiFromRaw(raw.outAmount, dst.decimals, this.tokens.multiplier(to)) * (1 - srcFeeBps / 10_000);
@@ -186,7 +187,7 @@ export class Engine {
       label: "Execution within slippage",
       ok: q.shortfallBps <= limits.maxSlippageBps,
       detail:
-        `${fmtBps(-q.shortfallBps)} vs market via ${q.route} (max -${limits.maxSlippageBps})` +
+        `${fmtBps(-q.shortfallBps)} vs DEX price via ${q.route} (max -${limits.maxSlippageBps})` +
         (q.feeBps > 0 ? `, plus ${(q.feeBps / 100).toFixed(1)}% token transfer fees` : ""),
     };
   }
@@ -312,7 +313,7 @@ export class Engine {
     const ratio = intent.lastEval!.ratio;
     if (intent.mode === "paper") {
       intent.status = "executed";
-      intent.execution = { at: Date.now(), paper: true, ratio, ...pick(q.summary) };
+      intent.execution = { at: Date.now(), paper: true, ratio, ...pick(q.summary), ...this.receiptExtras(intent, q.summary) };
       store.event(intent, "success", `Paper switch: ${fmtNum(q.summary.inUi)} ${intent.from} -> ${fmtNum(q.summary.outUi)} ${intent.to} at ratio ${ratio.toFixed(5)}`);
       store.touch();
       return;
@@ -350,7 +351,16 @@ export class Engine {
       const got = await receivedRaw(sig, ownerDst);
       const outUi = got !== undefined ? uiFromRaw(got, getAsset(intent.to).decimals, this.tokens.multiplier(intent.to)) : fresh.summary.outUi;
       intent.status = "executed";
-      intent.execution = { at: Date.now(), paper: false, signature: sig, ratio, ...pick(fresh.summary), outUi, shortfallBps: netShortfall(outUi, fresh.summary) };
+      intent.execution = {
+        at: Date.now(),
+        paper: false,
+        signature: sig,
+        ratio,
+        ...pick(fresh.summary),
+        outUi,
+        shortfallBps: netShortfall(outUi, fresh.summary),
+        ...this.receiptExtras(intent, fresh.summary),
+      };
       store.event(intent, "success", `Switched ${fmtNum(fresh.summary.inUi)} ${tokenSymbol(intent.from)} -> ${fmtNum(outUi)} ${tokenSymbol(intent.to)}`);
     } catch (e) {
       const n = (this.attempts.get(intent.id) ?? 0) + 1;
@@ -369,6 +379,15 @@ export class Engine {
       this.busy = false;
       store.touch();
     }
+  }
+
+  /** What a receipt needs beyond the fill: fees, the quote's expected output, and the prices behind the decision. */
+  private receiptExtras(intent: Intent, q: QuoteSummary): Pick<Execution, "feeBps" | "expectedOutUi" | "refs"> {
+    const snap = (t: string): RefSnapshot => {
+      const r = this.prices.ref(t);
+      return { source: this.prices.refSource(t), price: r?.price ?? 0, ageSec: r ? age(r.publishTime) : 0 };
+    };
+    return { feeBps: q.feeBps, expectedOutUi: q.outUi, refs: { from: snap(intent.from), to: snap(intent.to) } };
   }
 
   /** One-tap confirm: re-run every check, then hand back a swap transaction for the owner to sign. */
@@ -406,6 +425,7 @@ export class Engine {
       fairOutUi: q?.fairOutUi ?? outUi,
       shortfallBps: q ? netShortfall(outUi, q) : 0,
       route: q?.route ?? "Jupiter",
+      ...(q ? this.receiptExtras(intent, q) : {}),
     };
     store.event(intent, "success", `Confirmed: ${fmtNum(intent.execution.inUi)} ${intent.from} -> ${fmtNum(outUi)} ${intent.to}`);
     store.touch();

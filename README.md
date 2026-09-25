@@ -1,32 +1,72 @@
 # PairShift
 
-**Switch between tokenized stocks when the relationship moves, not the price.**
+**Switch when the relationship is right, not just the price.**
 
-PairShift lets you say *"move $300 from Tesla into SpaceX when SpaceX gets 5% cheaper relative to Tesla"* and does the rest on Solana. It turns the sentence into a measurable ratio trigger, watches the real-world prices behind both assets, refuses to trade on stale, drifting or mispriced data, and executes the stock-to-stock switch in a single transaction through Jupiter.
+PairShift turns private-market and tokenized-stock views into executable orders on Solana. Say *"move $100 from OpenAI into Anthropic when Anthropic becomes 10% cheaper relative to OpenAI"* and PairShift turns it into a deterministic trigger, watches the reference prices behind both assets, checks token state, fees, liquidity and slippage, and switches in a single transaction through Jupiter when the condition is met.
 
-It works across **13 public stocks (Backed xStocks)** and **8 pre-IPO companies (PreStocks)**, including mixed pairs like Tesla into SpaceX.
+It covers **8 pre-IPO companies (PreStocks)** and **13 public stocks (Backed xStocks)**, including mixed pairs like Tesla into SpaceX.
 
-Built for the Stocklana hackathon (Main track, PreStocks bounty).
+Built for Stocklana (Main track, PreStocks bounty).
 
 ---
 
+## Verified on Solana mainnet
+
+Every live path was dry-run with `simulateTransaction` against current mainnet state, using real token holders as stand-ins (`scripts/simulate.ts`, `scripts/sim-confirm.ts`):
+
+| Path | Pair | Result |
+|---|---|---|
+| One tap | OpenAI → Anthropic | Received 18,835,497 vs 18,835,427 predicted after the 1% PreStocks input fee |
+| Automatic | TSLAx → SpaceX | Received 16,471,098 vs 16,470,950 quoted; new Token-2022 account created in the same transaction |
+| Automatic | SPYx → NVDAx | Received 22,462,569 vs 22,462,669 quoted; 968 bytes, 140k compute units |
+
+PairShift also corrects for a quoting gap it found: Jupiter quotes include a Token-2022 transfer fee on the output token but not on the input token, so PairShift prices the input fee itself and widens the on-chain minimum out by exactly that fee.
+
+## What's live
+
+- Live PreStocks marks, token prices and valuations; live Pyth data where the key has access
+- Plain-English intents parsed into deterministic orders
+- Relative-value triggers confirmed across 3 fresh price updates per leg
+- Grouped safety checks: reference data, asset state, execution
+- Fee-aware Jupiter quotes and real Solana transaction construction
+- Paper mode on live prices, with an execution receipt for every switch
+- Wallet signing: one-tap PreStocks execution and automatic delegated xStock execution
+
 ## Why
 
-People who hold tokenized stocks on Solana rotate between them: trim a winner into the index, buy a laggard after it underperforms, move from one private AI company into another. Today that means watching two charts, working out a ratio by hand, selling into USDC and buying back, with price risk in between. Existing limit orders trigger on one token's own price, not on how two assets move against each other.
+Private-market tokens rarely trade at their reference value. At the time of writing, OpenAI tokens traded about **29% above** their PreStocks mark and SpaceX about **21% below**. Investors who rotate between these positions, or between a public stock and a private one, watch two prices, work out a ratio by hand, and sell to cash before buying back, with price risk in between. Existing limit orders trigger on one token's own price, not on how two assets move against each other.
 
-Tokenized stocks also add risks most holders never check:
+Tokenized markets also add costs and risks most holders never check:
 
-- They trade 24/7, while the real stock does not. At night and on weekends a token can drift away from its stock.
-- Pre-IPO tokens trade far from their reference price. At the time of writing, OpenAI tokens traded about **33% above** their PreStocks mark and SpaceX about **19% below**.
 - PreStocks charge a **1% transfer fee** on every transfer, which quietly eats small moves.
+- Public-stock tokens trade 24/7 while the real stock does not, so at night and on weekends a token can drift from its stock.
 
-PairShift handles all three.
+PairShift handles all of it.
+
+## PreStocks integration
+
+PairShift uses PreStocks data for:
+
+- asset discovery, token prices and mark prices for all 8 companies
+- premium and discount to mark, shown live and enforced as a check
+- the mark as the reference price for pre-IPO triggers
+- implied and mark valuations on the Markets page
+
+And it adapts execution to how PreStocks tokens work:
+
+- detects the Token-2022 transfer fee and prices it into every quote
+- never moves a PreStocks token an extra time: switches out of one run as one-tap confirms from the owner's wallet
+- defaults pre-IPO pairs to a 2.5% slippage limit to match thinner pools
+- blocks a switch that would buy far above, or sell far below, the mark
+- warns before arming when fees and spread would eat most of the move
+
+Only PreStocks pre-IPO tokens are integrated.
 
 ## How it works
 
-1. **Describe the switch in plain English.** A deterministic parser extracts the pair, amount (dollars or shares), direction and threshold. Everything is editable as a sentence with inline controls.
+1. **Describe the switch in plain English.** A deterministic parser extracts the pair, amount (dollars or units), direction and threshold. Everything is editable as a sentence with inline controls.
 2. **PairShift fixes a baseline.** The ratio *price of target / price of source* is measured from reference prices at arm time. "6% cheaper" means the ratio falls 6% from that baseline; "outperforms by 5%" means it rises 5%.
-3. **It watches reference prices, not token prices.** Public stocks use **Pyth** equity feeds (`Equity.US.TSLA/USD`); pre-IPO tokens use the **PreStocks mark**.
+3. **It watches reference prices, not token prices.** Pre-IPO tokens use the **PreStocks mark**; public stocks use **Pyth** equity feeds (`Equity.US.TSLA/USD`).
 4. **Before any trade, every safety check must pass:**
 
    | Check | What it prevents |
@@ -39,27 +79,15 @@ PairShift handles all three.
    | Pre-IPO price vs PreStocks mark | Buying a pre-IPO token above, or selling below, its mark by more than 10% |
    | No corporate action in flight | Switching around a dividend or split (xStock scaled-UI multiplier change) |
    | Tokens not paused | Issuer-paused tokens |
-   | Execution within slippage | A quote worse than market prices, after the known transfer fees |
+   | Execution within slippage | A quote worse than on-chain DEX prices, after the known transfer fees |
    | Funds approved / wallet balance | Switches the wallet can't cover |
 
    The trigger must also hold across **3 fresh price updates on each leg**, so one bad tick can't fire a switch. PairShift also warns before you arm when fees and spread would eat most of the move, and pre-IPO pairs default to a 2.5% slippage limit to match their thinner pools.
 5. **It executes in one of two ways:**
-   - **Automatic** (source is an xStock): you sign one SPL approval for the exact amount. When the trigger fires, a keeper sends one atomic transaction: pull the approved amount, swap through Jupiter with a hard minimum out, and deliver the new stock straight into your wallet. If any step fails, nothing moves.
    - **One tap** (source is a PreStocks token): moving it through the keeper would cost an extra 1% transfer fee, so PairShift doesn't. When everything passes, the switch shows as *Ready*. You press Confirm, PairShift re-runs every check, and you sign a fresh swap from your own wallet.
+   - **Automatic** (source is an xStock): you sign one SPL approval for the exact amount. When the trigger fires, a keeper sends one atomic transaction: pull the approved amount, swap through Jupiter with a hard minimum out, and deliver the new stock straight into your wallet. If any step fails, nothing moves.
 
 Paper mode runs the same pipeline without moving funds.
-
-## Verified against mainnet
-
-The live paths were dry-run with `simulateTransaction` against current mainnet state, using real token holders as stand-ins (`scripts/simulate.ts`, `scripts/sim-confirm.ts`):
-
-| Path | Pair | Result |
-|---|---|---|
-| Automatic | SPYx → NVDAx | Received 22,462,569 raw NVDAx vs 22,462,669 quoted; 968 bytes, 140k CU |
-| Automatic | TSLAx → SpaceX | Received 16,471,098 raw SpaceX vs 16,470,950 quoted; new Token-2022 account created in the same transaction |
-| One tap | OpenAI → Anthropic | Received 18,835,497 vs 18,835,427 predicted after the 1% input fee |
-
-PairShift also corrects for a quoting gap it found: Jupiter quotes include a Token-2022 transfer fee on the output token but not on the input token, so PairShift prices the input fee itself and widens the on-chain minimum out by exactly that fee.
 
 ## Architecture
 

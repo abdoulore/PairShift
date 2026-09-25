@@ -88,7 +88,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           if (revokeTx) {
             say("Cancelled. Sign once more to shrink the keeper's approval.");
             const signed = await wallet.signTransaction!(VersionedTransaction.deserialize(Buffer.from(revokeTx, "base64")));
-            await api.submit(b64(signed));
+            await api.revoke(i.id, b64(signed));
           }
         }
         say("Switch cancelled.");

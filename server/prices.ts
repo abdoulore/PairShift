@@ -30,7 +30,7 @@ const ALL_FEED_IDS = PYTH_FEED_IDS;
 const XSTOCKS = ASSETS.filter((a) => a.kind === "xstock");
 const PRESTOCKS = ASSETS.filter((a) => a.kind === "prestock");
 const PRESTOCKS_API = "https://prestocks.com/api/prestocks";
-type PreStocksRow = { contract_address: string; markPrice: number; tokenPrice: number };
+type PreStocksRow = { contract_address: string; markPrice: number; tokenPrice: number; markValuation?: number; impliedValuation?: number };
 const ALWAYS_OPEN = { isOpen: true, nextOpen: null, nextClose: null };
 
 export class PriceService {
@@ -43,6 +43,8 @@ export class PriceService {
   private denied = 0;
   private pythError?: string;
   private lastJupiterPoll = 0;
+  private valuations = new Map<string, { mark: number; implied: number }>();
+  private dex = new Map<string, FeedPrice>();
   private hours = new Map<string, MarketHours>();
   private history = new Map<string, Sample[]>();
   private historyFile = path.join(config.dataDir, "history.json");
@@ -119,8 +121,9 @@ export class PriceService {
       }
     }
     const skip = pythOk ? this.entitled : new Set<string>();
-    // Jupiter shares one rate limit with quotes, and Backed prices move every few minutes: poll every 10s.
-    if (skip.size < ALL_FEED_IDS.length && Date.now() - this.lastJupiterPoll >= JUPITER_PRICE_EVERY_MS) {
+    // Jupiter shares one rate limit with quotes: poll every 10s. It supplies DEX prices for every token
+    // (execution quality is judged against them) and fills xStock feeds that Pyth doesn't cover.
+    if (Date.now() - this.lastJupiterPoll >= JUPITER_PRICE_EVERY_MS) {
       this.lastJupiterPoll = Date.now();
       try {
         await this.pollJupiter(skip);
@@ -170,7 +173,7 @@ export class PriceService {
   // labeled as its own source and live execution refuses to run on it.
   private async pollJupiter(skip: Set<string>) {
     // Same host as the swap API: api.jup.ag with JUPITER_API_KEY, or the keyless lite-api.
-    const res = await fetch(`${new URL(config.jupiterUrl).origin}/price/v3?ids=${XSTOCKS.map((a) => a.mint).join(",")}`, {
+    const res = await fetch(`${new URL(config.jupiterUrl).origin}/price/v3?ids=${ASSETS.map((a) => a.mint).join(",")}`, {
       headers: config.jupiterApiKey ? { "x-api-key": config.jupiterApiKey } : {},
       signal: AbortSignal.timeout(5_000),
     });
@@ -182,6 +185,10 @@ export class PriceService {
       this.feeds.set(id, v);
       this.feedSource.set(id, "jupiter");
     };
+    for (const a of ASSETS) {
+      const p = body[a.mint];
+      if (p && valid(p.usdPrice)) this.dex.set(a.ticker, { price: p.usdPrice, conf: 0, publishTime: now });
+    }
     for (const a of XSTOCKS) {
       const p = body[a.mint];
       if (!p) continue;
@@ -221,6 +228,7 @@ export class PriceService {
   private applyPreStocks(list: PreStocksRow[], now: number) {
     for (const a of PRESTOCKS) {
       const p = list.find((x) => x.contract_address === a.mint);
+      if (p && valid(p.markValuation) && valid(p.impliedValuation)) this.valuations.set(a.ticker, { mark: p.markValuation, implied: p.impliedValuation });
       if (!p) continue;
       for (const [id, price] of [[a.feeds.ref, p.markPrice], [a.feeds.token, p.tokenPrice], [a.feeds.rate, this.tokens.multiplier(a.ticker)]] as const) {
         if (!valid(price)) continue; // the API occasionally omits a price
@@ -228,6 +236,12 @@ export class PriceService {
         this.feedSource.set(id, "prestocks");
       }
     }
+  }
+
+  /** Where the token actually trades on Solana right now (Jupiter), if fresh. */
+  dexPrice(ticker: string): number | undefined {
+    const d = this.dex.get(ticker);
+    return d && Date.now() / 1000 - d.publishTime < 120 ? d.price : undefined;
   }
 
   /** Where an asset's real-world reference price is coming from right now. */
@@ -295,6 +309,7 @@ export class PriceService {
       ticker,
       kind: a.kind,
       transferFeeBps: this.tokens.feeBps(ticker),
+      valuation: this.valuations.get(ticker),
       ref,
       token,
       rate,

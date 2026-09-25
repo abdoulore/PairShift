@@ -1,12 +1,26 @@
-import { CheckCircle, Clock, XCircle } from "@phosphor-icons/react";
-import type { Check } from "../../shared/types";
+import { CaretDown, CheckCircle, Clock, XCircle } from "@phosphor-icons/react";
+import type { Check, CheckId } from "../../shared/types";
+
+const GROUPS: { title: string; ids: CheckId[] }[] = [
+  { title: "Reference data", ids: ["source", "fresh", "market", "confidence"] },
+  { title: "Asset", ids: ["peg", "private", "corporate", "paused"] },
+  { title: "Execution", ids: ["quote", "balance", "delegation"] },
+];
+
+function Icon({ state }: { state: "ok" | "bad" | "pending" }) {
+  if (state === "pending") return <Clock size={18} weight="bold" className="ic-pending" aria-label="Pending" />;
+  if (state === "ok") return <CheckCircle size={18} weight="fill" className="ic-good" aria-label="Passing" />;
+  return <XCircle size={18} weight="fill" className="ic-bad" aria-label="Failing" />;
+}
+
+const stateOf = (c: Check) => (c.pending ? "pending" : c.ok ? "ok" : "bad");
 
 export function ChecksList({ checks, loading }: { checks?: Check[]; loading?: boolean }) {
   if (!checks) {
     return (
       <ul className="checks" aria-busy={loading}>
-        {Array.from({ length: 6 }, (_, i) => (
-          <li key={i}>
+        {GROUPS.map((g) => (
+          <li key={g.title}>
             <span className="skeleton" style={{ width: 18, height: 18, borderRadius: 999 }} />
             <span className="skeleton" style={{ height: 30 }} />
           </li>
@@ -15,22 +29,35 @@ export function ChecksList({ checks, loading }: { checks?: Check[]; loading?: bo
     );
   }
   return (
-    <ul className="checks">
-      {checks.map((c) => (
-        <li key={c.id}>
-          {c.pending ? (
-            <Clock size={18} weight="bold" className="ic-pending" aria-label="Pending" />
-          ) : c.ok ? (
-            <CheckCircle size={18} weight="fill" className="ic-good" aria-label="Passing" />
-          ) : (
-            <XCircle size={18} weight="fill" className="ic-bad" aria-label="Failing" />
-          )}
-          <div>
-            <div className="t">{c.label}</div>
-            <div className="d">{c.detail}</div>
-          </div>
-        </li>
-      ))}
-    </ul>
+    <div className="check-groups-app">
+      {GROUPS.map((g) => {
+        const items = checks.filter((c) => g.ids.includes(c.id));
+        if (!items.length) return null;
+        const failing = items.filter((c) => !c.ok);
+        const state = failing.length ? "bad" : items.every((c) => c.pending) ? "pending" : "ok";
+        const summary = failing.length ? failing.map((c) => c.label).join(", ") : `${items.length} of ${items.length} passing`;
+        return (
+          <details key={g.title} className="check-group" open={failing.length > 0}>
+            <summary>
+              <Icon state={state} />
+              <span className="cg-title">{g.title}</span>
+              <span className="cg-sum">{summary}</span>
+              <CaretDown size={14} className="cg-caret" />
+            </summary>
+            <ul className="checks">
+              {items.map((c) => (
+                <li key={c.id}>
+                  <Icon state={stateOf(c)} />
+                  <div>
+                    <div className="t">{c.label}</div>
+                    <div className="d">{c.detail}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </details>
+        );
+      })}
+    </div>
   );
 }

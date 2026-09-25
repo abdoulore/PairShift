@@ -14,10 +14,12 @@ import { PairChart } from "../components/PairChart";
 import { useDebounced, usePoll } from "../lib/hooks";
 import { b64, useAppData } from "../state/AppData";
 
+export const DEFAULT_TEXT = "Move $100 from OpenAI into Anthropic when Anthropic becomes 10% cheaper relative to OpenAI";
+
 const EXAMPLES = [
+  DEFAULT_TEXT,
   "Move $300 from Tesla into SpaceX when SpaceX gets 5% cheaper relative to Tesla",
   "Move $500 from SPY into NVDA when NVIDIA becomes 6% cheaper relative to the S&P 500",
-  "Switch $200 of OpenAI into Anthropic if Anthropic underperforms OpenAI by 8%",
   "Rotate $1,000 from QQQ into TSLA once Tesla outperforms the Nasdaq by 5%",
 ];
 
@@ -43,11 +45,11 @@ function AssetOptions() {
 }
 
 const INITIAL: IntentDraft = {
-  from: "TSLA",
-  to: "SPACEX",
-  sizing: { kind: "usd", usd: 300 },
+  from: "OPENAI",
+  to: "ANTHROPIC",
+  sizing: { kind: "usd", usd: 100 },
   direction: "cheaper",
-  thresholdPct: 5,
+  thresholdPct: 10,
   mode: "paper",
   limits: DEFAULT_LIMITS,
   expiresInDays: 7,
@@ -55,13 +57,16 @@ const INITIAL: IntentDraft = {
 
 const SOURCE_NAMES = { pyth: "Pyth", prestocks: "PreStocks marks", jupiter: "Backed via Jupiter" } as const;
 
-/** Sentence used when arriving from Markets or the landing page with ?to= (and optionally ?from=). */
+/** Sentence used when arriving with ?to= (and optionally ?from= and ?pct=). */
 function prefillText(params: URLSearchParams): string | undefined {
   const to = params.get("to")?.toUpperCase();
   if (!to || !ASSET_BY_TICKER[to]) return undefined;
   let from = params.get("from")?.toUpperCase();
-  if (!from || !ASSET_BY_TICKER[from] || from === to) from = to === "TSLA" ? "QQQ" : "TSLA";
-  return `Move $300 from ${from} into ${to} when ${to} gets 5% cheaper relative to ${from}`;
+  // Pre-IPO targets default to a pre-IPO source so the pair is live around the clock.
+  const fallback = ASSET_BY_TICKER[to].kind === "prestock" ? (to === "OPENAI" ? "ANTHROPIC" : "OPENAI") : to === "TSLA" ? "QQQ" : "TSLA";
+  if (!from || !ASSET_BY_TICKER[from] || from === to) from = fallback;
+  const pct = Number(params.get("pct")) > 0 ? Number(params.get("pct")) : 10;
+  return `Move $100 from ${from} into ${to} when ${to} becomes ${pct}% cheaper relative to ${from}`;
 }
 
 export function NewSwitch() {
@@ -179,7 +184,11 @@ export function NewSwitch() {
       .filter((k) => pairSources.has(k))
       .map((k) => SOURCE_NAMES[k])
       .join(" + ") || "loading prices";
+  const unitWord = ASSET_BY_TICKER[draft.from]?.kind === "prestock" ? "units" : "shares";
+  const fmtMove = (p: number) => `${p > 0 ? "+" : ""}${p.toFixed(1)}%`;
   const quote = preview?.quote;
+  const costPct = quote ? (quote.feeBps + Math.max(0, quote.shortfallBps)) / 100 : undefined;
+  const leftPct = preview && costPct !== undefined ? preview.draft.thresholdPct - costPct : undefined;
   const outNow = quote ? quote.outUi : preview?.outNow;
   const outAtTrigger = preview && outNow !== undefined ? outNow * (preview.ratio / preview.trigger) : undefined;
   const chg = outNow && outAtTrigger ? ((outAtTrigger / outNow - 1) * 100).toFixed(1) : "";
@@ -215,7 +224,7 @@ export function NewSwitch() {
                     $
                   </button>
                   <button className={draft.sizing.kind === "shares" ? "on" : ""} onClick={() => set({ sizing: { kind: "shares", shares: draft.sizing.kind === "shares" ? draft.sizing.shares : 1 } })}>
-                    shares
+                    {unitWord}
                   </button>
                 </span>{" "}
                 <input
@@ -281,27 +290,47 @@ export function NewSwitch() {
               )}
             </div>
 
-            <div className="plan">
+            <div className="plan four">
               <div>
-                <div className="k">Today</div>
-                <div className="v">{preview ? `1 ${preview.draft.to} = ${preview.ratio.toFixed(digits)}` : <span className="skeleton" style={{ display: "block", height: 24 }} />}</div>
-                <div className="s">{preview ? `${preview.draft.from} shares, priced by ${refLabel}` : " "}</div>
-              </div>
-              <div>
-                <div className="k">Switches at</div>
-                <div className="v">{preview ? preview.trigger.toFixed(digits) : <span className="skeleton" style={{ display: "block", height: 24 }} />}</div>
+                <div className="k">Switch fires at</div>
+                <div className="v">
+                  {preview ? fmtMove(preview.draft.direction === "cheaper" ? -preview.draft.thresholdPct : preview.draft.thresholdPct) : <span className="skeleton" style={{ display: "block", height: 24 }} />}
+                </div>
                 <div className="s">
                   {preview
-                    ? preview.draft.direction === "cheaper"
-                      ? `${preview.draft.from} per ${preview.draft.to} or less`
-                      : `${preview.draft.from} per ${preview.draft.to} or more`
+                    ? `${preview.draft.to} vs ${preview.draft.from}, from today. Ratio ${preview.ratio.toFixed(digits)} to ${preview.trigger.toFixed(digits)}, priced by ${refLabel}`
                     : " "}
                 </div>
               </div>
               <div>
+                <div className="k">Costs on this route</div>
+                <div className="v">{costPct !== undefined ? `${costPct.toFixed(1)}%` : <span className="skeleton" style={{ display: "block", height: 24 }} />}</div>
+                <div className="s">
+                  {quote
+                    ? quote.feeBps > 0
+                      ? `${(quote.feeBps / 100).toFixed(1)}% PreStocks transfer fees + ${(Math.max(0, quote.shortfallBps) / 100).toFixed(1)}% spread`
+                      : `Spread and price impact at today's liquidity`
+                    : " "}
+                </div>
+              </div>
+              <div>
+                <div className="k">Left after costs</div>
+                <div className={`v ${leftPct !== undefined && leftPct <= 0 ? "neg" : ""}`}>
+                  {leftPct !== undefined ? `${leftPct.toFixed(1)}%` : <span className="skeleton" style={{ display: "block", height: 24 }} />}
+                </div>
+                <div className="s">{leftPct !== undefined ? (leftPct > 0 ? "Of the move, once it fires" : "Costs would exceed the move") : " "}</div>
+              </div>
+              <div>
                 <div className="k">You would receive</div>
                 <div className="v">
-                  {preview && outAtTrigger !== undefined ? `${outAtTrigger.toFixed(4)} ${preview.draft.to}` : <span className="skeleton" style={{ display: "block", height: 24 }} />}
+                  {preview && outAtTrigger !== undefined ? (
+                    <>
+                      {outAtTrigger.toFixed(4)}
+                      <span className="unit">{preview.draft.to}</span>
+                    </>
+                  ) : (
+                    <span className="skeleton" style={{ display: "block", height: 24 }} />
+                  )}
                 </div>
                 <div className="s">
                   {preview && outNow !== undefined
@@ -315,7 +344,7 @@ export function NewSwitch() {
           <section className="card">
             <div className="card-head">
               <h2>
-                {draft.to} priced in {draft.from} shares
+                {draft.to} priced in {draft.from}
               </h2>
               <span className="sub">Priced by {refLabel}. Shaded area is where the switch fires.</span>
             </div>
@@ -345,15 +374,31 @@ export function NewSwitch() {
               </button>
             </div>
             {mode === "paper" ? (
-              <p className="hint">Paper mode runs the same checks and quotes, without moving funds.</p>
-            ) : style === "confirm" ? (
-              <p className="hint">
-                {draft.from} charges a 1% transfer fee, so PairShift won't move it an extra time. When the trigger fires and every check passes, you confirm the swap in
-                one tap.
-              </p>
+              <div className="callout paper">
+                <strong>Paper mode</strong>
+                Live market data and the same checks and quotes. No funds move.
+              </div>
             ) : (
-              <p className="hint">You sign one approval for the exact amount. Your {tokenSymbol(draft.from)} stays in your wallet until the switch fires.</p>
+              <div className="callout live">
+                <strong>Live: real tokens move when it fires</strong>
+                <ul>
+                  <li>
+                    Up to {draft.sizing.kind === "usd" ? fmtUsd(draft.sizing.usd, 0) : `${draft.sizing.shares} ${unitWord}`} of {tokenSymbol(draft.from)}
+                  </li>
+                  <li>Max slippage {(draft.limits.maxSlippageBps / 100).toFixed(1)}% after fees</li>
+                  <li>Expires in {draft.expiresInDays} days</li>
+                </ul>
+                <p className="hint" style={{ marginTop: 8 }}>
+                  {style === "confirm"
+                    ? `One-tap: ${draft.from} charges a 1% transfer fee, so it stays in your wallet until you confirm. No extra transfer, no extra fee.`
+                    : `Automatic: you approve the exact amount once. Your ${tokenSymbol(draft.from)} stays in your wallet until the switch fires.`}
+                </p>
+              </div>
             )}
+            <p className="hint">
+              Max slippage {(draft.limits.maxSlippageBps / 100).toFixed(1)}% after fees{preIpo ? " (pre-IPO pools are thinner)" : ""}, expires in {draft.expiresInDays} days.
+              Change these under Limits.
+            </p>
             {draft.mode === "live" && !liveReady && (
               <p className="hint warn">
                 {!status?.liveEnabled

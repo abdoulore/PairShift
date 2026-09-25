@@ -7,7 +7,11 @@ const age = (t?: number) => {
   return s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)}m` : `${Math.round(s / 3600)}h`;
 };
 const usd = (n?: number) => (n === undefined ? "n/a" : `$${n.toFixed(2)}`);
-const bps = (n?: number) => (n === undefined ? "n/a" : `${n >= 0 ? "+" : ""}${n.toFixed(0)} bps`);
+const bps = (n?: number) => {
+  if (n === undefined) return "n/a";
+  const r = Math.round(n);
+  return r === 0 ? "0 bps" : `${r > 0 ? "+" : ""}${r} bps`;
+};
 const pct = (n?: number) => (n === undefined ? "n/a" : `${n >= 0 ? "+" : ""}${(n / 100).toFixed(1)}%`);
 const srcLabel = (s?: string) => (s === "pyth" ? "Pyth" : s === "prestocks" ? "PreStocks" : s === "jupiter" ? "Backed via Jupiter" : "loading");
 
@@ -43,11 +47,12 @@ function Pick({ ticker, onPick }: { ticker: string; onPick?: (t: string) => void
   );
 }
 
-export function MarketTable({ market, onPick }: { market?: MarketSnapshot; onPick?: (ticker: string) => void }) {
+export function MarketTable({ market, onPick, only }: { market?: MarketSnapshot; onPick?: (ticker: string) => void; only?: "xstock" | "prestock" }) {
   const pub = market?.assets.filter((a) => a.kind === "xstock") ?? [];
   const pre = market?.assets.filter((a) => a.kind === "prestock") ?? [];
   return (
     <div className="stack">
+      {only !== "xstock" && (
       <div className="card">
         <div className="card-head">
           <h2>Pre-IPO tokens vs. their PreStocks mark</h2>
@@ -81,7 +86,8 @@ export function MarketTable({ market, onPick }: { market?: MarketSnapshot; onPic
           </table>
         </div>
       </div>
-
+      )}
+      {only !== "prestock" && (
       <div className="card">
         <div className="card-head">
           <h2>Public stocks: xStocks vs. the real share price</h2>
@@ -117,6 +123,7 @@ export function MarketTable({ market, onPick }: { market?: MarketSnapshot; onPic
           </table>
         </div>
       </div>
+      )}
     </div>
   );
 }

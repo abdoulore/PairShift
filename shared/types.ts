@@ -132,6 +132,18 @@ export interface Execution {
   ratio: number;
   route: string;
   error?: string;
+  /** Known token transfer fees on the route, basis points. */
+  feeBps?: number;
+  /** Output the final quote expected, before the transaction landed. */
+  expectedOutUi?: number;
+  /** Reference prices behind the decision, per leg. */
+  refs?: { from: RefSnapshot; to: RefSnapshot };
+}
+
+export interface RefSnapshot {
+  source?: PriceSource;
+  price: number;
+  ageSec: number;
 }
 
 export interface IntentEvent {
@@ -187,6 +199,8 @@ export interface AssetQuote {
   pegBps?: number;
   sources?: { ref?: PriceSource; token?: PriceSource; rate?: PriceSource };
   transferFeeBps?: number;
+  /** Pre-IPO only: company valuation at the PreStocks mark and implied by the token price, USD. */
+  valuation?: { mark: number; implied: number };
 }
 
 export interface MarketSnapshot {

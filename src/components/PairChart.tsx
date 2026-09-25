@@ -8,6 +8,8 @@ interface Props {
   baseline?: number;
   trigger?: number;
   direction: Direction;
+  /** Label for the baseline line: "Today" in the builder, "Baseline" for an armed switch. */
+  baselineLabel?: string;
 }
 
 const W = 720;
@@ -21,7 +23,13 @@ const fmtTime = (t: number, spanS: number) => {
     : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 };
 
-export function PairChart({ series, from, to, baseline, trigger, direction }: Props) {
+/** Move vs the baseline, e.g. "-4.6%". People read moves, not ratios. */
+const pctVs = (v: number, base: number) => {
+  const p = (v / base - 1) * 100;
+  return `${p > 0 ? "+" : ""}${p.toFixed(1)}%`;
+};
+
+export function PairChart({ series, from, to, baseline, trigger, direction, baselineLabel = "Today" }: Props) {
   const ref = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<number | null>(null);
 
@@ -46,7 +54,7 @@ export function PairChart({ series, from, to, baseline, trigger, direction }: Pr
   if (!geo) {
     return (
       <div className="chart-empty">
-        Collecting Pyth history for {to}/{from}. A new point is recorded every 30 seconds.
+        Collecting price history for {to} vs {from}. A new point is recorded every 30 seconds.
       </div>
     );
   }
@@ -85,7 +93,7 @@ export function PairChart({ series, from, to, baseline, trigger, direction }: Pr
         ref={ref}
         viewBox={`0 0 ${W} ${H}`}
         role="img"
-        aria-label={`${to} price in ${from} shares over time, currently ${last.r.toFixed(digits)}`}
+        aria-label={`${to} priced in ${from} over time, currently ${last.r.toFixed(digits)}`}
         onPointerMove={onMove}
         onPointerLeave={() => setHover(null)}
       >
@@ -94,7 +102,7 @@ export function PairChart({ series, from, to, baseline, trigger, direction }: Pr
           <g key={v}>
             <line x1={M.left} x2={W - M.right} y1={y(v)} y2={y(v)} stroke="var(--border)" strokeWidth={1} />
             <text x={M.left - 8} y={y(v) + 4} textAnchor="end" fontSize={11} fill="var(--ink-3)" fontFamily="var(--mono)">
-              {v.toFixed(digits)}
+              {baseline !== undefined ? pctVs(v, baseline) : v.toFixed(digits)}
             </text>
           </g>
         ))}
@@ -108,7 +116,7 @@ export function PairChart({ series, from, to, baseline, trigger, direction }: Pr
           <g>
             <line x1={M.left} x2={W - M.right} y1={y(baseline)} y2={y(baseline)} stroke="var(--ink-3)" strokeDasharray="4 4" strokeWidth={1} />
             <text x={W - M.right + 8} y={y(baseline) + 4} fontSize={11} fill="var(--ink-2)">
-              Baseline <tspan fontFamily="var(--mono)">{baseline.toFixed(digits)}</tspan>
+              {baselineLabel} <tspan fontFamily="var(--mono)">0.0%</tspan>
             </text>
           </g>
         )}
@@ -116,7 +124,7 @@ export function PairChart({ series, from, to, baseline, trigger, direction }: Pr
           <g>
             <line x1={M.left} x2={W - M.right} y1={y(trigger)} y2={y(trigger)} stroke="var(--accent)" strokeWidth={1} />
             <text x={W - M.right + 8} y={y(trigger) + 4} fontSize={11} fill="var(--ink)" fontWeight={600}>
-              Switch <tspan fontFamily="var(--mono)">{trigger.toFixed(digits)}</tspan>
+              Switch <tspan fontFamily="var(--mono)">{baseline !== undefined ? pctVs(trigger, baseline) : trigger.toFixed(digits)}</tspan>
             </text>
           </g>
         )}
@@ -137,10 +145,14 @@ export function PairChart({ series, from, to, baseline, trigger, direction }: Pr
           <div className="muted" style={{ color: "inherit", opacity: 0.75 }}>
             {new Date(hp.t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
           </div>
-          1 {to} = <span className="mono">{hp.r.toFixed(digits)}</span> {from}
           {baseline !== undefined && (
-            <span className="mono"> ({((hp.r / baseline - 1) * 100 >= 0 ? "+" : "") + ((hp.r / baseline - 1) * 100).toFixed(2)}%)</span>
+            <div>
+              <span className="mono">{pctVs(hp.r, baseline)}</span> vs {baselineLabel.toLowerCase()}
+            </div>
           )}
+          <div style={{ opacity: 0.75 }}>
+            1 {to} = <span className="mono">{hp.r.toFixed(digits)}</span> {from}
+          </div>
         </div>
       )}
     </div>
