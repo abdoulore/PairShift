@@ -126,7 +126,9 @@ table.market td.pick .btn, table.market td.txt { font-family: var(--font); }
 
 .grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; align-items: start; }
 @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
-.stack { display: grid; gap: 20px; min-width: 0; }
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; min-width: 0; }
+/* Cards never grow past the column; wide tables scroll inside their card instead of widening the page. */
+.stack > * { min-width: 0; }
 
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
 .card-pad { padding: 18px 20px; }
