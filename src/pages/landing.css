@@ -140,6 +140,7 @@ a.btn:hover { text-decoration: none; }
 .proof-path { color: var(--accent); font-weight: 600; white-space: nowrap; }
 .proof-pair { font-weight: 600; white-space: nowrap; }
 .proof-result { color: var(--ink-2); }
+.proof-link { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; white-space: nowrap; }
 
 /* Motion: entrance on load, reveal on scroll. Off for reduced motion. */
 @media (prefers-reduced-motion: no-preference) {

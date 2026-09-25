@@ -149,16 +149,23 @@ const CHECK_GROUPS = [
   },
 ];
 
-const PROOF = [
-  { path: "One tap", pair: "OpenAI to Anthropic", result: "Output matched the fee-adjusted quote to within 0.001%" },
-  { path: "Automatic", pair: "Tesla to SpaceX", result: "Public into pre-IPO, new token account opened in the same transaction" },
-  { path: "Automatic", pair: "S&P 500 to NVIDIA", result: "One atomic transaction: 968 bytes, 140k compute units" },
+const LIVE_TX = "https://solscan.io/tx/2LxBEz5pmcL9BZkjmuYY3xVtZ5ZieLm9jNZUv4AEU3c4QPtbnwY65XbzRk6HdLLWoBConUiEmrEnZntfDraCEfvJ";
+
+const PROOF: { path: string; pair: string; result: string; href?: string }[] = [
+  { path: "Live, one tap", pair: "OpenAI to Anthropic", result: "Triggered by the engine, confirmed from a wallet, settled in one transaction", href: LIVE_TX },
+  { path: "Simulated, one tap", pair: "OpenAI to Anthropic", result: "Output matched the fee-adjusted quote to within 0.001%" },
+  { path: "Simulated, automatic", pair: "Tesla to SpaceX", result: "Public into pre-IPO, new token account opened in the same transaction" },
+  { path: "Simulated, automatic", pair: "S&P 500 to NVIDIA", result: "One atomic transaction: 968 bytes, 140k compute units" },
 ];
 
 const FAQ = [
   {
     q: "Does Tandem hold my funds?",
     a: "No. One-tap switches are signed by you from your own wallet. Automatic switches use an SPL approval capped at the exact amount, and tokens only move inside the switch transaction. You can revoke or cancel at any time.",
+  },
+  {
+    q: "Do I need to keep Tandem open?",
+    a: "No. Tandem watches every switch on its server around the clock, and automatic switches execute on their own. For one-tap switches, turn on Telegram alerts in My switches: you get a message the moment one is ready, with buttons that open it in your mobile wallet.",
   },
   {
     q: "What does it cost?",
@@ -333,8 +340,8 @@ export function Landing() {
             <div className="way">
               <h3>One tap, for pre-IPO</h3>
               <p>
-                PreStocks charge a 1% transfer fee, so Tandem never moves them an extra time. When every check passes you get a Ready alert and confirm the swap from your
-                own wallet.
+                PreStocks charge a 1% transfer fee, so Tandem never moves them an extra time. When every check passes you get a Ready alert, in the app or on Telegram,
+                and confirm the swap from your own wallet, phone included.
               </p>
             </div>
             <div className="way">
@@ -348,16 +355,26 @@ export function Landing() {
 
         <section className="l-wrap l-section proof reveal">
           <div>
-            <h2>Tested against Solana mainnet.</h2>
-            <p>Every live path was simulated against current mainnet state, using real token holders.</p>
+            <h2>Live on Solana mainnet.</h2>
+            <p>A real switch has settled on mainnet, and every live path was also simulated against current mainnet state using real token holders.</p>
           </div>
           <table className="proof-table">
             <tbody>
               {PROOF.map((r) => (
-                <tr key={r.pair}>
+                <tr key={r.path + r.pair}>
                   <td className="proof-path">{r.path}</td>
                   <td className="proof-pair">{r.pair}</td>
-                  <td className="proof-result">{r.result}</td>
+                  <td className="proof-result">
+                    {r.result}
+                    {r.href && (
+                      <>
+                        {" "}
+                        <a href={r.href} target="_blank" rel="noreferrer" className="proof-link">
+                          View transaction <ArrowUpRight size={12} weight="bold" />
+                        </a>
+                      </>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
