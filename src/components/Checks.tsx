@@ -1,7 +1,7 @@
 import { CaretDown, CheckCircle, Clock, XCircle } from "@phosphor-icons/react";
 import type { Check, CheckId } from "../../shared/types";
 
-const GROUPS: { title: string; ids: CheckId[] }[] = [
+const GROUPS: { title: "Reference data" | "Asset" | "Execution"; ids: CheckId[] }[] = [
   { title: "Reference data", ids: ["source", "fresh", "market", "confidence"] },
   { title: "Asset", ids: ["peg", "private", "corporate", "paused"] },
   { title: "Execution", ids: ["quote", "balance", "delegation"] },
@@ -15,7 +15,16 @@ function Icon({ state }: { state: "ok" | "bad" | "pending" }) {
 
 const stateOf = (c: Check) => (c.pending ? "pending" : c.ok ? "ok" : "bad");
 
-export function ChecksList({ checks, loading }: { checks?: Check[]; loading?: boolean }) {
+export type GroupTitle = "Reference data" | "Asset" | "Execution";
+
+interface Props {
+  checks?: Check[];
+  loading?: boolean;
+  /** Plain-word summary shown for a group when all its checks pass. */
+  summaries?: Partial<Record<GroupTitle, string>>;
+}
+
+export function ChecksList({ checks, loading, summaries }: Props) {
   if (!checks) {
     return (
       <ul className="checks" aria-busy={loading}>
@@ -35,7 +44,7 @@ export function ChecksList({ checks, loading }: { checks?: Check[]; loading?: bo
         if (!items.length) return null;
         const failing = items.filter((c) => !c.ok);
         const state = failing.length ? "bad" : items.every((c) => c.pending) ? "pending" : "ok";
-        const summary = failing.length ? failing.map((c) => c.label).join(", ") : `${items.length} of ${items.length} passing`;
+        const summary = failing.length ? failing.map((c) => c.label).join(", ") : (summaries?.[g.title] ?? `${items.length} of ${items.length} passing`);
         return (
           <details key={g.title} className="check-group" open={failing.length > 0}>
             <summary>

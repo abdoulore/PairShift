@@ -4,7 +4,7 @@
 
 **Switch when the relationship is right, not just the price.**
 
-Tandem turns private-market and tokenized-stock views into executable orders on Solana. Say *"move $100 from OpenAI into Anthropic when Anthropic becomes 10% cheaper relative to OpenAI"* and Tandem turns it into a deterministic trigger, watches the reference prices behind both assets, checks token state, fees, liquidity and slippage, and switches in a single transaction through Jupiter when the condition is met.
+Tandem turns private-market and tokenized-stock views into executable orders on Solana. Set up *"move $100 from OpenAI into Anthropic when Anthropic becomes 10% cheaper relative to OpenAI"* and Tandem turns it into a deterministic trigger, watches the reference prices behind both assets, checks token state, fees, liquidity and slippage, and switches in a single transaction through Jupiter when the condition is met.
 
 It covers **8 pre-IPO companies (PreStocks)** and **13 public stocks (Backed xStocks)**, including mixed pairs like Tesla into SpaceX.
 
@@ -27,7 +27,7 @@ Tandem also corrects for a quoting gap it found: Jupiter quotes include a Token-
 ## What's live
 
 - Live PreStocks marks, token prices and valuations; live Pyth data where the key has access
-- Plain-English intents parsed into deterministic orders
+- A structured switch builder that reads every order back as a plain sentence
 - Relative-value triggers confirmed across 3 fresh price updates per leg
 - Grouped safety checks: reference data, asset state, execution
 - Fee-aware Jupiter quotes and real Solana transaction construction
@@ -66,7 +66,7 @@ Only PreStocks pre-IPO tokens are integrated.
 
 ## How it works
 
-1. **Describe the switch in plain English.** A deterministic parser extracts the pair, amount (dollars or units), direction and threshold. Everything is editable as a sentence with inline controls.
+1. **Pick the pair, amount and condition.** Choose any two of the 21 assets, an amount in dollars or units, and a relative move. Tandem reads the order back as a plain sentence.
 2. **Tandem fixes a baseline.** The ratio *price of target / price of source* is measured from reference prices at arm time. "6% cheaper" means the ratio falls 6% from that baseline; "outperforms by 5%" means it rises 5%.
 3. **It watches reference prices, not token prices.** Pre-IPO tokens use the **PreStocks mark**; public stocks use **Pyth** equity feeds (`Equity.US.TSLA/USD`).
 4. **Before any trade, every safety check must pass:**
@@ -95,7 +95,7 @@ Paper mode runs the same pipeline without moving funds.
 
 ```
 browser (React + Solana wallet adapter)
-   │  plain-English intent, previews, signed messages / transactions
+   │  switch orders, previews, signed messages / transactions
    ▼
 server (Node + Express)
    ├─ prices.ts      Pyth Hermes (per-feed entitlement detection), PreStocks API, Jupiter price API

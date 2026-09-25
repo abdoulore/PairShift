@@ -39,14 +39,14 @@ const RAW: Omit<Asset, "aliases" | "kind">[] = [
 ];
 
 const PRE: { ticker: string; name: string; mint: string; image: string }[] = [
-  { ticker: "OPENAI", name: "OpenAI", mint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF", image: "https://www.prestocks.com/logos/openai.png" },
-  { ticker: "ANTHROPIC", name: "Anthropic", mint: "Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw", image: "https://www.prestocks.com/logos/anthropic.png" },
-  { ticker: "SPACEX", name: "SpaceX", mint: "PreANxuXjsy2pvisWWMNB6YaJNzr7681wJJr2rHsfTh", image: "https://www.prestocks.com/logos/spacex.png" },
-  { ticker: "ANDURIL", name: "Anduril", mint: "PresTj4Yc2bAR197Er7wz4UUKSfqt6FryBEdAriBoQB", image: "https://www.prestocks.com/logos/anduril.png" },
-  { ticker: "NEURALINK", name: "Neuralink", mint: "PrekqLJvJ3qVdXmBGDiexvwUTF4rLFDa6HWS4HJbw9S", image: "https://www.prestocks.com/logos/neuralink.png" },
-  { ticker: "FIGUREAI", name: "Figure AI", mint: "PreZad18qfPtbxNpMtMuAuX2zVpvkEU8DnJx56faCWd", image: "https://www.prestocks.com/logos/figureai.png" },
-  { ticker: "KALSHI", name: "Kalshi", mint: "PreLWGkkeqG1s4HEfFZSy9moCrJ7btsHuUtfcCeoRua", image: "https://www.prestocks.com/logos/kalshi.png" },
-  { ticker: "POLYMARKET", name: "Polymarket", mint: "Pre8AREmFPtoJFT8mQSXQLh56cwJmM7CFDRuoGBZiUP", image: "https://www.prestocks.com/logos/polymarket.png" },
+  { ticker: "OPENAI", name: "OpenAI", mint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF", image: "https://prestocks.com/logos/openai.png" },
+  { ticker: "ANTHROPIC", name: "Anthropic", mint: "Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw", image: "https://prestocks.com/logos/anthropic.png" },
+  { ticker: "SPACEX", name: "SpaceX", mint: "PreANxuXjsy2pvisWWMNB6YaJNzr7681wJJr2rHsfTh", image: "https://prestocks.com/logos/spacex.png" },
+  { ticker: "ANDURIL", name: "Anduril", mint: "PresTj4Yc2bAR197Er7wz4UUKSfqt6FryBEdAriBoQB", image: "https://prestocks.com/logos/anduril.png" },
+  { ticker: "NEURALINK", name: "Neuralink", mint: "PrekqLJvJ3qVdXmBGDiexvwUTF4rLFDa6HWS4HJbw9S", image: "https://prestocks.com/logos/neuralink.png" },
+  { ticker: "FIGUREAI", name: "Figure AI", mint: "PreZad18qfPtbxNpMtMuAuX2zVpvkEU8DnJx56faCWd", image: "https://prestocks.com/logos/figureai.png" },
+  { ticker: "KALSHI", name: "Kalshi", mint: "PreLWGkkeqG1s4HEfFZSy9moCrJ7btsHuUtfcCeoRua", image: "https://prestocks.com/logos/kalshi.png" },
+  { ticker: "POLYMARKET", name: "Polymarket", mint: "Pre8AREmFPtoJFT8mQSXQLh56cwJmM7CFDRuoGBZiUP", image: "https://prestocks.com/logos/polymarket.png" },
 ];
 
 // Words people use for each asset in plain-English intents.

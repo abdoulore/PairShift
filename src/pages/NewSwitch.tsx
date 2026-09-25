@@ -3,46 +3,17 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { VersionedTransaction } from "@solana/web3.js";
 import bs58 from "bs58";
-import { ShieldCheck, Wallet } from "@phosphor-icons/react";
-import { ASSETS, ASSET_BY_TICKER, tokenSymbol } from "../../shared/assets";
+import { ArrowsLeftRight, Check, ShieldCheck, Wallet } from "@phosphor-icons/react";
+import { ASSET_BY_TICKER, tokenSymbol } from "../../shared/assets";
 import { fmtUsd } from "../../shared/math";
 import { intentMessage } from "../../shared/messages";
 import { DEFAULT_LIMITS, PRE_IPO_SLIPPAGE_BPS, canonicalDraft, type IntentDraft, type Mode } from "../../shared/types";
 import { api, type Preview } from "../api";
+import { AssetPicker } from "../components/AssetPicker";
 import { ChecksList } from "../components/Checks";
 import { PairChart } from "../components/PairChart";
 import { useDebounced, usePoll } from "../lib/hooks";
 import { b64, useAppData } from "../state/AppData";
-
-export const DEFAULT_TEXT = "Move $100 from OpenAI into Anthropic when Anthropic becomes 10% cheaper relative to OpenAI";
-
-const EXAMPLES = [
-  DEFAULT_TEXT,
-  "Move $300 from Tesla into SpaceX when SpaceX gets 5% cheaper relative to Tesla",
-  "Move $500 from SPY into NVDA when NVIDIA becomes 6% cheaper relative to the S&P 500",
-  "Rotate $1,000 from QQQ into TSLA once Tesla outperforms the Nasdaq by 5%",
-];
-
-const GROUPS = [
-  { label: "Public stocks (xStocks)", kind: "xstock" },
-  { label: "Pre-IPO (PreStocks)", kind: "prestock" },
-] as const;
-
-function AssetOptions() {
-  return (
-    <>
-      {GROUPS.map((g) => (
-        <optgroup key={g.kind} label={g.label}>
-          {ASSETS.filter((a) => a.kind === g.kind).map((a) => (
-            <option key={a.ticker} value={a.ticker}>
-              {a.ticker}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </>
-  );
-}
 
 const INITIAL: IntentDraft = {
   from: "OPENAI",
@@ -56,18 +27,26 @@ const INITIAL: IntentDraft = {
 };
 
 const SOURCE_NAMES = { pyth: "Pyth", prestocks: "PreStocks marks", jupiter: "Backed via Jupiter" } as const;
+const ORDER = ["pyth", "prestocks", "jupiter"] as const;
 
-/** Sentence used when arriving with ?to= (and optionally ?from= and ?pct=). */
-function prefillText(params: URLSearchParams): string | undefined {
+/** Start from ?to= (and optionally ?from=, ?pct=, ?usd=) when arriving from Markets or the landing page. */
+function initialDraft(params: URLSearchParams): IntentDraft {
   const to = params.get("to")?.toUpperCase();
-  if (!to || !ASSET_BY_TICKER[to]) return undefined;
+  if (!to || !ASSET_BY_TICKER[to]) return INITIAL;
   let from = params.get("from")?.toUpperCase();
   // Pre-IPO targets default to a pre-IPO source so the pair is live around the clock.
   const fallback = ASSET_BY_TICKER[to].kind === "prestock" ? (to === "OPENAI" ? "ANTHROPIC" : "OPENAI") : to === "TSLA" ? "QQQ" : "TSLA";
   if (!from || !ASSET_BY_TICKER[from] || from === to) from = fallback;
-  const pct = Number(params.get("pct")) > 0 ? Number(params.get("pct")) : 10;
-  return `Move $100 from ${from} into ${to} when ${to} becomes ${pct}% cheaper relative to ${from}`;
+  const pct = Number(params.get("pct")) > 0 ? Number(params.get("pct")) : INITIAL.thresholdPct;
+  const usd = Number(params.get("usd")) > 0 ? Number(params.get("usd")) : 100;
+  return { ...INITIAL, from, to, thresholdPct: pct, sizing: { kind: "usd", usd } };
 }
+
+const age = (t?: number) => {
+  if (!t) return "";
+  const s = Math.max(0, Math.round(Date.now() / 1000 - t));
+  return s < 90 ? `${s}s` : `${Math.round(s / 60)}m`;
+};
 
 export function NewSwitch() {
   const wallet = useWallet();
@@ -75,41 +54,15 @@ export function NewSwitch() {
   const [params] = useSearchParams();
   const { owner, status, market, say } = useAppData();
 
-  const [text, setText] = useState(() => prefillText(params) ?? EXAMPLES[0]);
-  const [draft, setDraft] = useState<IntentDraft>(INITIAL);
-  const [notes, setNotes] = useState<string[]>([]);
+  const [draft, setDraft] = useState<IntentDraft>(() => initialDraft(params));
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewErr, setPreviewErr] = useState<string | null>(null);
   const [series, setSeries] = useState<{ t: number; r: number }[]>([]);
-  const [arming, setArming] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    const t = prefillText(params);
-    if (t) setText(t);
+    if (params.get("to")) setDraft(initialDraft(params));
   }, [params]);
-
-  // Plain English -> structured draft
-  const debouncedText = useDebounced(text, 350);
-  useEffect(() => {
-    if (!debouncedText.trim()) return;
-    api
-      .parse(debouncedText)
-      .then((r) => {
-        setNotes([...r.notes, ...(r.missing.length ? [`Could not find: ${r.missing.join(", ")}. Fill it in below.`] : [])]);
-        setDraft((d) => ({
-          ...d,
-          ...(r.draft.from ? { from: r.draft.from } : {}),
-          ...(r.draft.to ? { to: r.draft.to } : {}),
-          ...(r.draft.sizing ? { sizing: r.draft.sizing } : {}),
-          ...(r.draft.direction ? { direction: r.draft.direction } : {}),
-          ...(r.draft.thresholdPct !== undefined ? { thresholdPct: r.draft.thresholdPct } : {}),
-          ...(r.draft.expiresInDays ? { expiresInDays: r.draft.expiresInDays } : {}),
-          ...(r.draft.mode ? { mode: r.draft.mode } : {}),
-          text: debouncedText,
-        }));
-      })
-      .catch(() => {});
-  }, [debouncedText]);
 
   // Live preview: baseline, trigger, checks, executable quote
   const debouncedDraft = useDebounced(draft, 300);
@@ -143,13 +96,46 @@ export function NewSwitch() {
   const allPass = preview?.checks.every((c) => c.ok) ?? false;
   const sameAsset = draft.from === draft.to;
 
-  async function arm() {
-    setArming(true);
+  // Names, prices and wording for the form
+  const fromA = ASSET_BY_TICKER[draft.from];
+  const toA = ASSET_BY_TICKER[draft.to];
+  const q = (t: string) => market?.assets.find((a) => a.ticker === t);
+  const fromRef = q(draft.from)?.ref?.price;
+  const unitWord = fromA.kind === "prestock" ? "units" : "shares";
+  const meta = (t: string) => {
+    const a = q(t);
+    if (!a?.token) return " ";
+    const vs = ASSET_BY_TICKER[t].kind === "prestock" ? "vs mark" : "vs stock";
+    const p = a.pegBps === undefined ? "" : ` · ${a.pegBps >= 0 ? "+" : ""}${(a.pegBps / 100).toFixed(1)}% ${vs}`;
+    return `${fmtUsd(a.token.price)}${p}`;
+  };
+  const amountText =
+    draft.sizing.kind === "usd" ? `${fmtUsd(draft.sizing.usd, draft.sizing.usd % 1 ? 2 : 0)} of ${fromA.name}` : `${draft.sizing.shares} ${fromA.name} ${unitWord}`;
+  const sentence =
+    draft.direction === "cheaper"
+      ? `Move ${amountText} into ${toA.name} when ${toA.name} becomes ${draft.thresholdPct}% cheaper relative to ${fromA.name}.`
+      : `Move ${amountText} into ${toA.name} when ${toA.name} outperforms ${fromA.name} by ${draft.thresholdPct}%.`;
+
+  // Switching USD <-> units converts the amount so the trade size stays the same.
+  function setUnit(kind: "usd" | "shares") {
+    if (kind === draft.sizing.kind) return;
+    if (!fromRef) return set({ sizing: kind === "usd" ? { kind, usd: 100 } : { kind, shares: 1 } });
+    if (kind === "shares" && draft.sizing.kind === "usd") set({ sizing: { kind, shares: Number((draft.sizing.usd / fromRef).toFixed(4)) } });
+    if (kind === "usd" && draft.sizing.kind === "shares") set({ sizing: { kind, usd: Number((draft.sizing.shares * fromRef).toFixed(2)) } });
+  }
+  const amountHelp = !fromRef
+    ? " "
+    : draft.sizing.kind === "usd"
+      ? `About ${(draft.sizing.usd / fromRef).toFixed(4)} ${fromA.name} ${unitWord}`
+      : `About ${fmtUsd(draft.sizing.shares * fromRef)}`;
+
+  async function create() {
+    setCreating(true);
     try {
-      const full: IntentDraft = { ...draft, mode, limits: { ...DEFAULT_LIMITS, ...draft.limits } };
+      const full: IntentDraft = { ...draft, mode, text: sentence, limits: { ...DEFAULT_LIMITS, ...draft.limits } };
       if (mode === "paper") {
         await api.create({ draft: full, owner });
-        say("Paper switch armed. Track it in My switches.");
+        say("Paper switch created. Track it in My switches.");
         navigate("/app/switches");
         return;
       }
@@ -159,32 +145,30 @@ export function NewSwitch() {
       const { intent, approvalTx } = await api.create({ draft: full, owner: pk, ts, signature: bs58.encode(sig) });
       if (!approvalTx) {
         if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
-        say("Armed. When it triggers and every check passes, you'll confirm in one tap.");
+        say("Live switch created. When it triggers and every check passes, you'll confirm in one tap.");
         navigate("/app/switches");
         return;
       }
-      say("Approve the exact amount in your wallet. Your stock stays with you until the switch.");
+      say("Approve the exact amount in your wallet. Your tokens stay with you until the switch.");
       const signed = await wallet.signTransaction!(VersionedTransaction.deserialize(Buffer.from(approvalTx, "base64")));
       await api.confirm(intent.id, b64(signed));
-      say("Live switch armed. Approval confirmed on-chain.");
+      say("Live switch created. Approval confirmed on-chain.");
       navigate("/app/switches");
     } catch (e) {
       say((e as Error).message, true);
     } finally {
-      setArming(false);
+      setCreating(false);
     }
   }
 
   const digits = preview && preview.ratio < 1 ? 5 : 4;
   // Name the reference sources actually behind this pair.
-  const srcOf = (t: string) => market?.assets.find((a) => a.ticker === t)?.sources?.ref;
+  const srcOf = (t: string) => q(t)?.sources?.ref;
   const pairSources = new Set([srcOf(draft.from), srcOf(draft.to)]);
   const refLabel =
-    (["pyth", "prestocks", "jupiter"] as const)
-      .filter((k) => pairSources.has(k))
+    ORDER.filter((k) => pairSources.has(k))
       .map((k) => SOURCE_NAMES[k])
       .join(" + ") || "loading prices";
-  const unitWord = ASSET_BY_TICKER[draft.from]?.kind === "prestock" ? "units" : "shares";
   const fmtMove = (p: number) => `${p > 0 ? "+" : ""}${p.toFixed(1)}%`;
   const quote = preview?.quote;
   const costPct = quote ? (quote.feeBps + Math.max(0, quote.shortfallBps)) / 100 : undefined;
@@ -193,97 +177,110 @@ export function NewSwitch() {
   const outAtTrigger = preview && outNow !== undefined ? outNow * (preview.ratio / preview.trigger) : undefined;
   const chg = outNow && outAtTrigger ? ((outAtTrigger / outNow - 1) * 100).toFixed(1) : "";
 
+  // Plain-word summaries for passing check groups
+  const oldest = Math.max(...[draft.from, draft.to].map((t) => (q(t)?.ref ? Date.now() / 1000 - q(t)!.ref!.publishTime : 0)));
+  const summaries = {
+    "Reference data": `${refLabel}, ${age(Date.now() / 1000 - oldest)} old`,
+    Asset: "Near reference prices",
+    Execution: quote
+      ? `${(Math.max(0, quote.shortfallBps) / 100).toFixed(1)}% slippage, limit ${(draft.limits.maxSlippageBps / 100).toFixed(1)}%`
+      : "Quoting",
+  };
+
   return (
     <main className="page">
       <div className="page-head">
         <h1>New switch</h1>
-        <p>Describe it, check the plan and the safety checks, then arm it. Paper mode needs no wallet.</p>
+        <p>Pick two assets and a condition. Tandem checks everything before it moves.</p>
       </div>
 
       <div className="grid">
         <div className="stack">
-          <section className="card composer">
-            <div className="card-pad">
-              <label className="field-label" htmlFor="intent">
-                Your switch, in plain English
-              </label>
-              <textarea id="intent" value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} />
-              <div className="examples">
-                {EXAMPLES.filter((ex) => ex !== text).slice(0, 3).map((ex) => (
-                  <button key={ex} className="example" onClick={() => setText(ex)}>
-                    {ex}
-                  </button>
-                ))}
+          <section className="card builder">
+            <div className="card-pad builder-body">
+              <div className="pair-row">
+                <div className="field">
+                  <label htmlFor="from">From</label>
+                  <AssetPicker id="from" value={draft.from} other={draft.to} market={market} onChange={(t) => set({ from: t })} />
+                  <div className="field-help num">{meta(draft.from)}</div>
+                </div>
+                <button type="button" className="flip" aria-label="Swap from and to" onClick={() => set({ from: draft.to, to: draft.from })}>
+                  <ArrowsLeftRight size={18} weight="bold" />
+                </button>
+                <div className="field">
+                  <label htmlFor="to">To</label>
+                  <AssetPicker id="to" value={draft.to} other={draft.from} market={market} onChange={(t) => set({ to: t })} />
+                  <div className="field-help num">{meta(draft.to)}</div>
+                </div>
               </div>
-              {notes.length > 0 && <p className="parse-notes">{notes.join(" ")}</p>}
 
-              <div className="sentence">
-                Move{" "}
-                <span className="seg" role="group" aria-label="Amount unit">
-                  <button className={draft.sizing.kind === "usd" ? "on" : ""} onClick={() => set({ sizing: { kind: "usd", usd: draft.sizing.kind === "usd" ? draft.sizing.usd : 500 } })}>
-                    $
-                  </button>
-                  <button className={draft.sizing.kind === "shares" ? "on" : ""} onClick={() => set({ sizing: { kind: "shares", shares: draft.sizing.kind === "shares" ? draft.sizing.shares : 1 } })}>
-                    {unitWord}
-                  </button>
-                </span>{" "}
-                <input
-                  className="inline"
-                  type="number"
-                  min={0}
-                  step="any"
-                  aria-label="Amount"
-                  value={draft.sizing.kind === "usd" ? draft.sizing.usd : draft.sizing.shares}
-                  onChange={(e) => {
-                    const n = Number(e.target.value);
-                    set({ sizing: draft.sizing.kind === "usd" ? { kind: "usd", usd: n } : { kind: "shares", shares: n } });
-                  }}
-                />{" "}
-                of{" "}
-                <select className="inline" aria-label="Move out of" value={draft.from} onChange={(e) => set({ from: e.target.value })}>
-                  <AssetOptions />
-                </select>{" "}
-                into{" "}
-                <select className="inline" aria-label="Move into" value={draft.to} onChange={(e) => set({ to: e.target.value })}>
-                  <AssetOptions />
-                </select>{" "}
-                when <strong>{draft.to}</strong> {draft.direction === "cheaper" ? "becomes" : "outperforms"}{" "}
-                {draft.direction === "richer" && (
-                  <>
-                    <strong>{draft.from}</strong> by{" "}
-                  </>
-                )}
-                <input
-                  className="inline pct"
-                  type="number"
-                  min={0}
-                  max={50}
-                  step="0.1"
-                  aria-label="Threshold percent"
-                  value={draft.thresholdPct}
-                  onChange={(e) => set({ thresholdPct: Number(e.target.value) })}
-                />
-                %{" "}
-                <span className="seg" role="group" aria-label="Direction">
-                  <button className={draft.direction === "cheaper" ? "on" : ""} onClick={() => set({ direction: "cheaper" })}>
-                    cheaper
-                  </button>
-                  <button className={draft.direction === "richer" ? "on" : ""} onClick={() => set({ direction: "richer" })}>
-                    stronger
-                  </button>
-                </span>
-                {draft.direction === "cheaper" && (
-                  <>
-                    {" "}
-                    relative to <strong>{draft.from}</strong>
-                  </>
-                )}
-                .
+              <div className="terms-row">
+                <div className="field">
+                  <label htmlFor="amount">Amount</label>
+                  <div className="control-row">
+                    <span className="seg big" role="group" aria-label="Amount unit">
+                      <button type="button" className={draft.sizing.kind === "usd" ? "on" : ""} onClick={() => setUnit("usd")}>
+                        USD
+                      </button>
+                      <button type="button" className={draft.sizing.kind === "shares" ? "on" : ""} onClick={() => setUnit("shares")}>
+                        {unitWord === "units" ? "Units" : "Shares"}
+                      </button>
+                    </span>
+                    <input
+                      id="amount"
+                      className="text-input num"
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={draft.sizing.kind === "usd" ? draft.sizing.usd : draft.sizing.shares}
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        set({ sizing: draft.sizing.kind === "usd" ? { kind: "usd", usd: n } : { kind: "shares", shares: n } });
+                      }}
+                    />
+                  </div>
+                  <div className="field-help">{amountHelp}</div>
+                </div>
+                <div className="field">
+                  <label htmlFor="pct">Condition</label>
+                  <div className="control-row">
+                    <span className="cond-name">{toA.name}</span>
+                    <span className="seg big" role="group" aria-label="Direction">
+                      <button type="button" className={draft.direction === "cheaper" ? "on" : ""} onClick={() => set({ direction: "cheaper" })}>
+                        gets cheaper
+                      </button>
+                      <button type="button" className={draft.direction === "richer" ? "on" : ""} onClick={() => set({ direction: "richer" })}>
+                        outperforms
+                      </button>
+                    </span>
+                    <span className="pct-input">
+                      <input
+                        id="pct"
+                        className="num"
+                        type="number"
+                        min={0}
+                        max={50}
+                        step="0.5"
+                        value={draft.thresholdPct}
+                        onChange={(e) => set({ thresholdPct: Number(e.target.value) })}
+                      />
+                      <span>%</span>
+                    </span>
+                  </div>
+                  <div className="field-help">
+                    Relative to {fromA.name}, measured from today's {refLabel}
+                  </div>
+                </div>
               </div>
-              {sameAsset && <p className="hint bad">Pick two different stocks.</p>}
+
+              <div className="summary-line">
+                <Check size={18} weight="bold" />
+                <p>{sentence}</p>
+              </div>
+              {sameAsset && <p className="hint bad">Pick two different assets.</p>}
               {previewErr && !sameAsset && <p className="hint bad">{previewErr}</p>}
               {preview?.thinTrigger !== undefined && (
-                <p className="hint warn" style={{ marginTop: 8 }}>
+                <p className="hint warn">
                   Fees and spread on this route are about {preview.thinTrigger.toFixed(1)}%, which would eat most of a {preview.draft.thresholdPct}% move. Consider a
                   trigger of {Math.ceil(preview.thinTrigger * 3)}% or more.
                 </p>
@@ -297,9 +294,7 @@ export function NewSwitch() {
                   {preview ? fmtMove(preview.draft.direction === "cheaper" ? -preview.draft.thresholdPct : preview.draft.thresholdPct) : <span className="skeleton" style={{ display: "block", height: 24 }} />}
                 </div>
                 <div className="s">
-                  {preview
-                    ? `${preview.draft.to} vs ${preview.draft.from}, from today. Ratio ${preview.ratio.toFixed(digits)} to ${preview.trigger.toFixed(digits)}, priced by ${refLabel}`
-                    : " "}
+                  {preview ? `${toA.name} vs ${fromA.name}, from today. Ratio ${preview.ratio.toFixed(digits)} to ${preview.trigger.toFixed(digits)}` : " "}
                 </div>
               </div>
               <div>
@@ -334,7 +329,7 @@ export function NewSwitch() {
                 </div>
                 <div className="s">
                   {preview && outNow !== undefined
-                    ? `for ${preview.amountUi.toFixed(4)} ${preview.draft.from} (${fmtUsd(preview.usdValue, 0)}), vs ${outNow.toFixed(4)} today (${Number(chg) >= 0 ? "+" : ""}${chg}%)${quote ? ", after fees" : ""}`
+                    ? `vs ${outNow.toFixed(4)} today (${Number(chg) >= 0 ? "+" : ""}${chg}%)${quote ? ", after fees" : ""}`
                     : " "}
                 </div>
               </div>
@@ -344,7 +339,7 @@ export function NewSwitch() {
           <section className="card">
             <div className="card-head">
               <h2>
-                {draft.to} priced in {draft.from}
+                {toA.name} priced in {fromA.name}
               </h2>
               <span className="sub">Priced by {refLabel}. Shaded area is where the switch fires.</span>
             </div>
@@ -355,15 +350,9 @@ export function NewSwitch() {
         <aside className="card">
           <div className="card-head">
             <h2>Safety checks</h2>
-            <span className="sub">{preview ? (allPass ? "All passing now" : "Some blocking now") : "Loading"}</span>
+            <span className="sub">{preview ? (allPass ? "Checked now and again when it fires" : "Blocking now, re-checked continuously") : "Loading"}</span>
           </div>
-          <ChecksList checks={preview?.checks} loading={!preview} />
-          {quote && (
-            <p className="hint" style={{ padding: "0 20px 12px" }}>
-              Right now {quote.inUi.toFixed(4)} {tokenSymbol(draft.from)} would swap for {quote.outUi.toFixed(4)} {tokenSymbol(draft.to)} after fees, vs{" "}
-              {quote.fairOutUi.toFixed(4)} at market prices before fees.
-            </p>
-          )}
+          <ChecksList checks={preview?.checks} loading={!preview} summaries={summaries} />
           <div className="side-actions">
             <div className="mode" role="group" aria-label="Execution mode">
               <button className={mode === "paper" ? "on" : ""} onClick={() => set({ mode: "paper" })}>
@@ -381,24 +370,12 @@ export function NewSwitch() {
             ) : (
               <div className="callout live">
                 <strong>Live: real tokens move when it fires</strong>
-                <ul>
-                  <li>
-                    Up to {draft.sizing.kind === "usd" ? fmtUsd(draft.sizing.usd, 0) : `${draft.sizing.shares} ${unitWord}`} of {tokenSymbol(draft.from)}
-                  </li>
-                  <li>Max slippage {(draft.limits.maxSlippageBps / 100).toFixed(1)}% after fees</li>
-                  <li>Expires in {draft.expiresInDays} days</li>
-                </ul>
-                <p className="hint" style={{ marginTop: 8 }}>
-                  {style === "confirm"
-                    ? `One-tap: ${draft.from} charges a 1% transfer fee, so it stays in your wallet until you confirm. No extra transfer, no extra fee.`
-                    : `Automatic: you approve the exact amount once. Your ${tokenSymbol(draft.from)} stays in your wallet until the switch fires.`}
-                </p>
+                Up to {draft.sizing.kind === "usd" ? fmtUsd(draft.sizing.usd, 0) : `${draft.sizing.shares} ${unitWord}`} of {tokenSymbol(draft.from)}.{" "}
+                {style === "confirm"
+                  ? `${fromA.name} charges a 1% transfer fee, so it stays in your wallet until you confirm in one tap.`
+                  : `You approve the exact amount once; it stays in your wallet until the switch fires.`}
               </div>
             )}
-            <p className="hint">
-              Max slippage {(draft.limits.maxSlippageBps / 100).toFixed(1)}% after fees{preIpo ? " (pre-IPO pools are thinner)" : ""}, expires in {draft.expiresInDays} days.
-              Change these under Limits.
-            </p>
             {draft.mode === "live" && !liveReady && (
               <p className="hint warn">
                 {!status?.liveEnabled
@@ -409,8 +386,10 @@ export function NewSwitch() {
               </p>
             )}
 
-            <details className="advanced">
-              <summary>Limits and expiry</summary>
+            <details className="advanced limits-line">
+              <summary>
+                Max slippage {(draft.limits.maxSlippageBps / 100).toFixed(1)}% after fees, expires in {draft.expiresInDays} days. <span className="edit">Edit</span>
+              </summary>
               <div className="limits">
                 {(
                   [
@@ -443,11 +422,10 @@ export function NewSwitch() {
               </div>
             </details>
 
-            <button className="btn btn-primary" onClick={arm} disabled={!preview || sameAsset || arming || (draft.mode === "live" && !liveReady)}>
+            <button className="btn btn-primary" onClick={create} disabled={!preview || sameAsset || creating || (draft.mode === "live" && !liveReady)}>
               {mode === "live" ? <Wallet size={18} weight="bold" /> : <ShieldCheck size={18} weight="bold" />}
-              {arming ? "Arming" : mode === "live" ? (style === "confirm" ? "Sign and arm" : "Approve and arm") : "Arm paper switch"}
+              {creating ? "Creating" : mode === "live" ? "Create live switch" : "Create paper switch"}
             </button>
-            {preview && !allPass && <p className="hint">Checks are re-run continuously. Blocked checks only delay the switch; they never loosen your limits.</p>}
           </div>
         </aside>
       </div>

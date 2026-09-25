@@ -128,7 +128,7 @@ function LivePreview({ market }: { market?: { assets: AssetQuote[] } }) {
 }
 
 const STEPS = [
-  { title: "Define", body: "Describe the switch in plain English. Tandem turns it into a deterministic order: pair, amount, direction, threshold." },
+  { title: "Define", body: "Pick two assets, an amount and a condition. Tandem turns it into a deterministic order and reads it back in plain words." },
   { title: "Measure", body: "It prices one asset in units of the other from reference prices, fixes the baseline, and marks the level that fires." },
   { title: "Verify", body: "Fresh reference data, token state, premium to mark, fees, liquidity and slippage are checked before anything moves." },
   { title: "Execute", body: "Jupiter routes the switch and Solana settles it in one transaction with a hard minimum out." },
@@ -290,7 +290,7 @@ export function Landing() {
 
         <section id="how" className="l-section how-section reveal">
           <div className="l-wrap">
-            <h2>From a sentence to a settled switch.</h2>
+            <h2>From a condition to a settled switch.</h2>
             <ol className="steps">
               {STEPS.map((s) => (
                 <li key={s.title}>
@@ -409,7 +409,7 @@ export function Landing() {
 
         <section className="l-wrap cta-band reveal">
           <div>
-            <h2>Describe your first switch.</h2>
+            <h2>Set up your first switch.</h2>
             <p>Paper mode uses live prices and needs no wallet.</p>
           </div>
           <Link to="/app" className="btn btn-primary">
