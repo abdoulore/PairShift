@@ -1,4 +1,4 @@
-// Assets PairShift can switch between. Every asset has three price feeds:
+// Assets Tandem can switch between. Every asset has three price feeds:
 //   ref   - the real-world reference price the trigger is measured on
 //   token - the price of the token on Solana
 //   rate  - how many underlying shares one prescaled token represents

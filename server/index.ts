@@ -354,7 +354,7 @@ if (fs.existsSync(dist)) {
 }
 
 app.listen(config.port, () => {
-  console.log(`PairShift API on http://localhost:${config.port}`);
+  console.log(`Tandem API on http://localhost:${config.port}`);
   console.log(`  prices: ${prices.sourceNote}`);
   console.log(`  keeper: ${config.keeper?.publicKey.toBase58() ?? "not configured (paper mode only)"}`);
 });

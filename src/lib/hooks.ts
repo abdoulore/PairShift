@@ -23,10 +23,10 @@ export function usePoll(fn: () => void, ms: number, deps: unknown[] = []) {
 /** Anonymous id for paper switches made without a wallet (kept in this browser only). */
 export function guestId(): string {
   try {
-    let id = localStorage.getItem("pairshift.guest");
+    let id = localStorage.getItem("tandem.guest");
     if (!id) {
       id = `guest:${Math.random().toString(36).slice(2, 10)}`;
-      localStorage.setItem("pairshift.guest", id);
+      localStorage.setItem("tandem.guest", id);
     }
     return id;
   } catch {

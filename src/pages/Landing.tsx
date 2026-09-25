@@ -128,7 +128,7 @@ function LivePreview({ market }: { market?: { assets: AssetQuote[] } }) {
 }
 
 const STEPS = [
-  { title: "Define", body: "Describe the switch in plain English. PairShift turns it into a deterministic order: pair, amount, direction, threshold." },
+  { title: "Define", body: "Describe the switch in plain English. Tandem turns it into a deterministic order: pair, amount, direction, threshold." },
   { title: "Measure", body: "It prices one asset in units of the other from reference prices, fixes the baseline, and marks the level that fires." },
   { title: "Verify", body: "Fresh reference data, token state, premium to mark, fees, liquidity and slippage are checked before anything moves." },
   { title: "Execute", body: "Jupiter routes the switch and Solana settles it in one transaction with a hard minimum out." },
@@ -157,12 +157,12 @@ const PROOF = [
 
 const FAQ = [
   {
-    q: "Does PairShift hold my funds?",
+    q: "Does Tandem hold my funds?",
     a: "No. One-tap switches are signed by you from your own wallet. Automatic switches use an SPL approval capped at the exact amount, and tokens only move inside the switch transaction. You can revoke or cancel at any time.",
   },
   {
     q: "What does it cost?",
-    a: "PairShift charges nothing. You pay Solana network fees, the pool spread, and PreStocks' 1% transfer fee on pre-IPO tokens. The app shows all of it before you arm a switch.",
+    a: "Tandem charges nothing. You pay Solana network fees, the pool spread, and PreStocks' 1% transfer fee on pre-IPO tokens. The app shows all of it before you arm a switch.",
   },
   {
     q: "Where do the prices come from?",
@@ -170,7 +170,7 @@ const FAQ = [
   },
   {
     q: "What happens when the US market is closed?",
-    a: "Pre-IPO switches keep running. Switches involving a public stock wait, because PairShift won't act on a stock price that isn't moving.",
+    a: "Pre-IPO switches keep running. Switches involving a public stock wait, because Tandem won't act on a stock price that isn't moving.",
   },
   {
     q: "Who can use it?",
@@ -215,7 +215,7 @@ export function Landing() {
         <div className="l-wrap l-nav-row">
           <Link to="/" className="brand">
             <BrandMark />
-            PairShift
+            Tandem
           </Link>
           <nav className="l-links" aria-label="Main">
             <a href="#how">How it works</a>
@@ -232,7 +232,7 @@ export function Landing() {
           <h1>Switch when the relationship is right, not just the price.</h1>
           <div className="hero-grid">
             <div className="hero-copy">
-              <p>Set a private-market or relative-value condition. PairShift watches the reference data and switches on Solana when it's met.</p>
+              <p>Set a private-market or relative-value condition. Tandem watches the reference data and switches on Solana when it's met.</p>
               <div className="hero-ctas">
                 <Link to="/app" className="btn btn-primary">
                   {CTA}
@@ -249,7 +249,7 @@ export function Landing() {
         <section className="l-wrap l-section reveal">
           <div className="section-lead">
             <h2>Pre-IPO tokens rarely trade at their mark.</h2>
-            <p>Live from PreStocks. PairShift turns these gaps into executable conditions, and won't buy far above a company's mark or sell far below it.</p>
+            <p>Live from PreStocks. Tandem turns these gaps into executable conditions, and won't buy far above a company's mark or sell far below it.</p>
           </div>
           <div className="tiles">
             {pre.length
@@ -333,7 +333,7 @@ export function Landing() {
             <div className="way">
               <h3>One tap, for pre-IPO</h3>
               <p>
-                PreStocks charge a 1% transfer fee, so PairShift never moves them an extra time. When every check passes you get a Ready alert and confirm the swap from your
+                PreStocks charge a 1% transfer fee, so Tandem never moves them an extra time. When every check passes you get a Ready alert and confirm the swap from your
                 own wallet.
               </p>
             </div>
@@ -420,7 +420,7 @@ export function Landing() {
 
       <footer className="l-wrap l-foot">
         <div className="foot-row">
-          <span>PairShift, built on Solana for Stocklana</span>
+          <span>Tandem, built on Solana for Stocklana</span>
           <span className="muted">Prices from PreStocks, Pyth and Jupiter</span>
         </div>
         <p className="disclaimer">

@@ -8,7 +8,7 @@ function EmptyState() {
   return (
     <div className="empty-rich">
       <h3>No active switches</h3>
-      <p>PairShift watches the relationship between two assets and acts when your condition is met. Try this one:</p>
+      <p>Tandem watches the relationship between two assets and acts when your condition is met. Try this one:</p>
       <div className="empty-example">
         <div className="pair">
           OpenAI <ArrowRight size={14} weight="bold" /> Anthropic

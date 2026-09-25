@@ -1,5 +1,5 @@
 {
-  "name": "pairshift",
+  "name": "tandem",
   "version": "0.1.0",
   "private": true,
   "description": "Relative-value stock switching for tokenized stocks on Solana, triggered by Pyth.",

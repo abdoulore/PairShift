@@ -112,12 +112,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       const msg = `Ready to switch ${i.from} into ${i.to}. Confirm in My switches.`;
       say(msg);
       try {
-        if ("Notification" in window && Notification.permission === "granted") new Notification("PairShift", { body: msg });
+        if ("Notification" in window && Notification.permission === "granted") new Notification("Tandem", { body: msg });
       } catch {
         /* notifications are best-effort */
       }
     }
-    document.title = ready.length ? `(${ready.length}) Ready - PairShift` : "PairShift";
+    document.title = ready.length ? `(${ready.length}) Ready - Tandem` : "Tandem";
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readyKey, say]);
 

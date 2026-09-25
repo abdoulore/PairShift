@@ -13,9 +13,9 @@ export function AppShell() {
   return (
     <>
       <header className="topbar">
-        <Link to="/" className="brand" aria-label="PairShift home">
+        <Link to="/" className="brand" aria-label="Tandem home">
           <BrandMark />
-          PairShift
+          Tandem
         </Link>
         <nav className="appnav" aria-label="App">
           <NavLink to="/app" end>
