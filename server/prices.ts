@@ -244,6 +244,11 @@ export class PriceService {
     return d && Date.now() / 1000 - d.publishTime < 120 ? d.price : undefined;
   }
 
+  /** What one token costs to buy or sell right now: the DEX price, else the token feed, else the reference. */
+  marketPrice(ticker: string): number | undefined {
+    return this.dexPrice(ticker) ?? this.token(ticker)?.price ?? this.ref(ticker)?.price;
+  }
+
   /** Where an asset's real-world reference price is coming from right now. */
   refSource(ticker: string): PriceSource | undefined {
     return this.feedSource.get(ASSETS.find((a) => a.ticker === ticker)!.feeds.ref);
@@ -310,6 +315,7 @@ export class PriceService {
       kind: a.kind,
       transferFeeBps: this.tokens.feeBps(ticker),
       valuation: this.valuations.get(ticker),
+      dex: this.dexPrice(ticker),
       ref,
       token,
       rate,

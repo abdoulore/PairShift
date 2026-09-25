@@ -101,7 +101,9 @@ export function IntentList({ intents, onCancel, onConfirm, busyId, empty }: Prop
                   <div className="meter" aria-label={`${Math.round(e.progress * 100)}% of the way to the trigger`}>
                     <span style={{ width: `${Math.max(2, e.progress * 100)}%` }} />
                   </div>
-                  {e.conditionMet && (
+                  {i.status === "ready" ? (
+                    <div className="meta">Condition reached and every check passed. Confirm to switch.</div>
+                  ) : e.conditionMet && (
                     <div className="meta">
                       {e.blockedBy
                         ? `Condition reached, waiting on: ${e.blockedBy}`

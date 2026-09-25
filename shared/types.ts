@@ -189,6 +189,8 @@ export interface AssetQuote {
   kind: "xstock" | "prestock";
   ref?: { price: number; conf: number; publishTime: number };
   token?: { price: number; conf: number; publishTime: number };
+  /** Where the token trades on Solana right now (Jupiter), USD per token, when fresh. */
+  dex?: number;
   rate?: number;
   multiplier?: number;
   pendingMultiplier?: { value: number; effectiveAt: number };

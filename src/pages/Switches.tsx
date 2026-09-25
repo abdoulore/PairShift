@@ -1,13 +1,21 @@
-import { Link } from "react-router-dom";
+import { useRef, type KeyboardEvent } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { ArrowRight } from "@phosphor-icons/react";
 import { useWallet } from "@solana/wallet-adapter-react";
+import type { Intent } from "../../shared/types";
 import { IntentList } from "../components/IntentList";
 import { useAppData } from "../state/AppData";
+
+const OPEN = new Set<Intent["status"]>(["armed", "ready", "awaiting_approval", "executing"]);
+const TABS = ["open", "closed"] as const;
+type Tab = (typeof TABS)[number];
+
+const closedAt = (i: Intent) => i.execution?.at ?? i.events[i.events.length - 1]?.at ?? i.createdAt;
 
 function EmptyState() {
   return (
     <div className="empty-rich">
-      <h3>No active switches</h3>
+      <h3>No open switches</h3>
       <p>Tandem watches the relationship between two assets and acts when your condition is met. Try this one:</p>
       <div className="empty-example">
         <div className="pair">
@@ -26,8 +34,31 @@ function EmptyState() {
 export function Switches() {
   const wallet = useWallet();
   const { intents, cancel, confirmSwitch, busyId, readyCount } = useAppData();
-  const active = intents.filter((i) => ["armed", "ready", "awaiting_approval", "executing"].includes(i.status));
-  const past = intents.filter((i) => !active.includes(i));
+  const [params, setParams] = useSearchParams();
+  const tab: Tab = params.get("tab") === "closed" ? "closed" : "open";
+  const tabRefs = useRef<Record<Tab, HTMLButtonElement | null>>({ open: null, closed: null });
+
+  // A switch that closes while you're watching stays in Open until you change tab or leave, so its result doesn't vanish mid-view.
+  const watched = useRef(new Set<string>());
+  for (const i of intents) if (OPEN.has(i.status)) watched.current.add(i.id);
+
+  const open = intents
+    .filter((i) => OPEN.has(i.status) || watched.current.has(i.id))
+    .sort((a, b) => Number(b.status === "ready") - Number(a.status === "ready"));
+  const closed = intents.filter((i) => !OPEN.has(i.status)).sort((a, b) => closedAt(b) - closedAt(a));
+  const counts: Record<Tab, number> = { open: open.length, closed: closed.length };
+
+  function pick(t: Tab) {
+    for (const i of intents) if (!OPEN.has(i.status)) watched.current.delete(i.id);
+    setParams(t === "open" ? {} : { tab: t }, { replace: true });
+  }
+  function onKey(e: KeyboardEvent) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const next = tab === "open" ? "closed" : "open";
+    pick(next);
+    tabRefs.current[next]?.focus();
+  }
+
   return (
     <main className="page">
       <div className="page-head row">
@@ -46,21 +77,40 @@ export function Switches() {
         </Link>
       </div>
 
-      <div className="section-title first">
-        <h2>Active</h2>
-        <span className="muted">{active.length}</span>
+      <div className="tabs" role="tablist" aria-label="Switches" onKeyDown={onKey}>
+        {TABS.map((t) => (
+          <button
+            key={t}
+            ref={(el) => {
+              tabRefs.current[t] = el;
+            }}
+            role="tab"
+            id={`tab-${t}`}
+            aria-selected={tab === t}
+            aria-controls="switches-panel"
+            tabIndex={tab === t ? 0 : -1}
+            className={tab === t ? "on" : ""}
+            onClick={() => pick(t)}
+          >
+            {t === "open" ? "Open" : "Closed"}
+            <span className="n">{counts[t]}</span>
+          </button>
+        ))}
       </div>
-      <IntentList intents={active} onCancel={cancel} onConfirm={confirmSwitch} busyId={busyId ?? undefined} empty={<EmptyState />} />
 
-      {past.length > 0 && (
-        <>
-          <div className="section-title">
-            <h2>History</h2>
-            <span className="muted">{past.length}</span>
-          </div>
-          <IntentList intents={past} onCancel={cancel} onConfirm={confirmSwitch} busyId={busyId ?? undefined} />
-        </>
-      )}
+      <div id="switches-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
+        {tab === "open" ? (
+          <IntentList intents={open} onCancel={cancel} onConfirm={confirmSwitch} busyId={busyId ?? undefined} empty={<EmptyState />} />
+        ) : (
+          <IntentList
+            intents={closed}
+            onCancel={cancel}
+            onConfirm={confirmSwitch}
+            busyId={busyId ?? undefined}
+            empty="Nothing closed yet. Switches that fire, expire or are cancelled show up here with their receipts."
+          />
+        )}
+      </div>
     </main>
   );
 }

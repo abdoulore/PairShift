@@ -51,10 +51,20 @@ class Store {
   flush() {
     if (!this.dirty) return;
     this.dirty = false;
-    fs.mkdirSync(config.dataDir, { recursive: true });
-    const tmp = `${FILE}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(this.all(), null, 1));
-    fs.renameSync(tmp, FILE);
+    const tmp = `${FILE}.${process.pid}.${Date.now()}.tmp`;
+    try {
+      fs.mkdirSync(config.dataDir, { recursive: true });
+      fs.writeFileSync(tmp, JSON.stringify(this.all(), null, 1));
+      fs.renameSync(tmp, FILE);
+    } catch (e) {
+      this.dirty = true; // try again on the next tick
+      console.warn("saving switches failed, retrying:", (e as Error).message);
+      try {
+        fs.rmSync(tmp, { force: true });
+      } catch {
+        /* nothing to clean up */
+      }
+    }
   }
 }
 

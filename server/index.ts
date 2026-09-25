@@ -79,12 +79,14 @@ function priceContext(d: IntentDraft) {
   const toRef = prices.ref(d.to)?.price;
   if (!fromRef || !toRef) throw new Error("Prices are still loading - try again in a moment");
   const src = getAsset(d.from);
-  const shares = sharesForSizing(d.sizing, fromRef);
+  // USD amounts buy tokens at the market price, not the reference mark.
+  const fromPx = prices.marketPrice(d.from) ?? fromRef;
+  const shares = sharesForSizing(d.sizing, fromPx);
   const amountRaw = rawFromUi(shares, src.decimals, tokens.multiplier(d.from));
   const amountUi = uiFromRaw(amountRaw, src.decimals, tokens.multiplier(d.from));
   const ratio = pairRatio(fromRef, toRef);
   const trigger = triggerRatio(ratio, d.direction, d.thresholdPct);
-  return { fromRef, toRef, ratio, trigger, amountRaw, amountUi, usdValue: amountUi * fromRef };
+  return { fromRef, toRef, ratio, trigger, amountRaw, amountUi, usdValue: amountUi * fromPx };
 }
 
 /** Tokens with a transfer fee (PreStocks) switch by one-tap confirm so they aren't moved an extra time. */

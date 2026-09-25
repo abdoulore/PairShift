@@ -20,8 +20,8 @@ export function conditionMet(ratio: number, trigger: number, direction: Directio
 
 /** 0 at the baseline, 1 at (or past) the trigger, in the direction the user cares about. */
 export function progress(ratio: number, baseline: number, direction: Direction, thresholdPct: number): number {
-  if (thresholdPct <= 0) return 1;
   const c = changePct(ratio, baseline);
+  if (thresholdPct <= 0) return (direction === "cheaper" ? c <= 0 : c >= 0) ? 1 : 0;
   const p = (direction === "cheaper" ? -c : c) / thresholdPct;
   return Math.max(0, Math.min(1, p));
 }

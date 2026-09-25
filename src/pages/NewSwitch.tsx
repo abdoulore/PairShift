@@ -11,6 +11,7 @@ import { DEFAULT_LIMITS, PRE_IPO_SLIPPAGE_BPS, canonicalDraft, type IntentDraft,
 import { api, type Preview } from "../api";
 import { AssetPicker } from "../components/AssetPicker";
 import { ChecksList } from "../components/Checks";
+import { NumberField } from "../components/NumberField";
 import { PairChart } from "../components/PairChart";
 import { useDebounced, usePoll } from "../lib/hooks";
 import { b64, useAppData } from "../state/AppData";
@@ -42,6 +43,17 @@ function initialDraft(params: URLSearchParams): IntentDraft {
   return { ...INITIAL, from, to, thresholdPct: pct, sizing: { kind: "usd", usd } };
 }
 
+const amountOf = (d: IntentDraft) => (d.sizing.kind === "usd" ? d.sizing.usd : d.sizing.shares);
+
+/** What stops a draft from being previewed or created, in the words shown under the form. */
+function problem(d: IntentDraft): string | null {
+  if (d.from === d.to) return "Pick two different assets.";
+  if (!(amountOf(d) > 0)) return "Enter an amount above zero.";
+  if (!Number.isFinite(d.thresholdPct)) return "Enter a trigger percentage.";
+  if (!Number.isFinite(d.expiresInDays) || Object.values(d.limits).some((v) => !Number.isFinite(v))) return "Fill in every limit.";
+  return null;
+}
+
 const age = (t?: number) => {
   if (!t) return "";
   const s = Math.max(0, Math.round(Date.now() / 1000 - t));
@@ -56,7 +68,9 @@ export function NewSwitch() {
 
   const [draft, setDraft] = useState<IntentDraft>(() => initialDraft(params));
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [previewFor, setPreviewFor] = useState<IntentDraft | null>(null);
   const [previewErr, setPreviewErr] = useState<string | null>(null);
+  const previewSeq = useRef(0);
   const [series, setSeries] = useState<{ t: number; r: number }[]>([]);
   const [creating, setCreating] = useState(false);
 
@@ -67,13 +81,18 @@ export function NewSwitch() {
   // Live preview: baseline, trigger, checks, executable quote
   const debouncedDraft = useDebounced(draft, 300);
   const refreshPreview = useCallback(() => {
+    const d = debouncedDraft;
+    if (problem(d)) return;
+    const n = ++previewSeq.current;
     api
-      .preview(debouncedDraft, owner)
+      .preview(d, owner)
       .then((p) => {
+        if (n !== previewSeq.current) return;
         setPreview(p);
+        setPreviewFor(d);
         setPreviewErr(null);
       })
-      .catch((e) => setPreviewErr(e.message));
+      .catch((e) => n === previewSeq.current && setPreviewErr(e.message));
   }, [debouncedDraft, owner]);
   usePoll(refreshPreview, 10_000, [refreshPreview]);
   usePoll(() => api.pair(draft.from, draft.to).then((r) => setSeries(r.series)).catch(() => {}), 30_000, [draft.from, draft.to]);
@@ -94,13 +113,18 @@ export function NewSwitch() {
     setDraft((d) => (d.limits.maxSlippageBps === want ? d : { ...d, limits: { ...d.limits, maxSlippageBps: want } }));
   }, [preIpo]);
   const allPass = preview?.checks.every((c) => c.ok) ?? false;
-  const sameAsset = draft.from === draft.to;
+  const invalid = problem(draft);
+  // The plan and checks describe the last previewed draft; until they catch up with the form, they're dimmed and Create waits.
+  const stale = Boolean(invalid || previewErr || !preview || previewFor !== draft);
 
   // Names, prices and wording for the form
   const fromA = ASSET_BY_TICKER[draft.from];
   const toA = ASSET_BY_TICKER[draft.to];
   const q = (t: string) => market?.assets.find((a) => a.ticker === t);
-  const fromRef = q(draft.from)?.ref?.price;
+  // Amounts in USD convert at the price the token trades at, not the reference mark.
+  const fq = q(draft.from);
+  const fromPx = fq?.dex ?? fq?.token?.price ?? fq?.ref?.price;
+  const amount = amountOf(draft);
   const unitWord = fromA.kind === "prestock" ? "units" : "shares";
   const meta = (t: string) => {
     const a = q(t);
@@ -109,25 +133,31 @@ export function NewSwitch() {
     const p = a.pegBps === undefined ? "" : ` · ${a.pegBps >= 0 ? "+" : ""}${(a.pegBps / 100).toFixed(1)}% ${vs}`;
     return `${fmtUsd(a.token.price)}${p}`;
   };
-  const amountText =
-    draft.sizing.kind === "usd" ? `${fmtUsd(draft.sizing.usd, draft.sizing.usd % 1 ? 2 : 0)} of ${fromA.name}` : `${draft.sizing.shares} ${fromA.name} ${unitWord}`;
+  const sizeText = !Number.isFinite(amount)
+    ? "…"
+    : draft.sizing.kind === "usd"
+      ? fmtUsd(amount, amount % 1 ? 2 : 0)
+      : `${amount} ${unitWord}`;
+  const amountText = draft.sizing.kind === "usd" ? `${sizeText} of ${fromA.name}` : `${Number.isFinite(amount) ? amount : "…"} ${fromA.name} ${unitWord}`;
+  const pctText = Number.isFinite(draft.thresholdPct) ? draft.thresholdPct : "…";
   const sentence =
     draft.direction === "cheaper"
-      ? `Move ${amountText} into ${toA.name} when ${toA.name} becomes ${draft.thresholdPct}% cheaper relative to ${fromA.name}.`
-      : `Move ${amountText} into ${toA.name} when ${toA.name} outperforms ${fromA.name} by ${draft.thresholdPct}%.`;
+      ? `Move ${amountText} into ${toA.name} when ${toA.name} becomes ${pctText}% cheaper relative to ${fromA.name}.`
+      : `Move ${amountText} into ${toA.name} when ${toA.name} outperforms ${fromA.name} by ${pctText}%.`;
 
   // Switching USD <-> units converts the amount so the trade size stays the same.
   function setUnit(kind: "usd" | "shares") {
     if (kind === draft.sizing.kind) return;
-    if (!fromRef) return set({ sizing: kind === "usd" ? { kind, usd: 100 } : { kind, shares: 1 } });
-    if (kind === "shares" && draft.sizing.kind === "usd") set({ sizing: { kind, shares: Number((draft.sizing.usd / fromRef).toFixed(4)) } });
-    if (kind === "usd" && draft.sizing.kind === "shares") set({ sizing: { kind, usd: Number((draft.sizing.shares * fromRef).toFixed(2)) } });
+    if (!fromPx || !(amount > 0)) return set({ sizing: kind === "usd" ? { kind, usd: 100 } : { kind, shares: 1 } });
+    if (kind === "shares") set({ sizing: { kind, shares: Number((amount / fromPx).toFixed(4)) } });
+    else set({ sizing: { kind, usd: Number((amount * fromPx).toFixed(2)) } });
   }
-  const amountHelp = !fromRef
-    ? " "
-    : draft.sizing.kind === "usd"
-      ? `About ${(draft.sizing.usd / fromRef).toFixed(4)} ${fromA.name} ${unitWord}`
-      : `About ${fmtUsd(draft.sizing.shares * fromRef)}`;
+  const amountHelp =
+    !fromPx || !(amount > 0)
+      ? " "
+      : draft.sizing.kind === "usd"
+        ? `About ${(amount / fromPx).toFixed(4)} ${fromA.name} ${unitWord} at the market price`
+        : `About ${fmtUsd(amount * fromPx)} at the market price`;
 
   async function create() {
     setCreating(true);
@@ -226,17 +256,11 @@ export function NewSwitch() {
                         {unitWord === "units" ? "Units" : "Shares"}
                       </button>
                     </span>
-                    <input
+                    <NumberField
                       id="amount"
                       className="text-input num"
-                      type="number"
-                      min={0}
-                      step="any"
-                      value={draft.sizing.kind === "usd" ? draft.sizing.usd : draft.sizing.shares}
-                      onChange={(e) => {
-                        const n = Number(e.target.value);
-                        set({ sizing: draft.sizing.kind === "usd" ? { kind: "usd", usd: n } : { kind: "shares", shares: n } });
-                      }}
+                      value={amount}
+                      onChange={(n) => set({ sizing: draft.sizing.kind === "usd" ? { kind: "usd", usd: n } : { kind: "shares", shares: n } })}
                     />
                   </div>
                   <div className="field-help">{amountHelp}</div>
@@ -254,16 +278,7 @@ export function NewSwitch() {
                       </button>
                     </span>
                     <span className="pct-input">
-                      <input
-                        id="pct"
-                        className="num"
-                        type="number"
-                        min={0}
-                        max={50}
-                        step="0.5"
-                        value={draft.thresholdPct}
-                        onChange={(e) => set({ thresholdPct: Number(e.target.value) })}
-                      />
+                      <NumberField id="pct" className="num" min={0} max={50} value={draft.thresholdPct} onChange={(n) => set({ thresholdPct: n })} />
                       <span>%</span>
                     </span>
                   </div>
@@ -277,17 +292,17 @@ export function NewSwitch() {
                 <Check size={18} weight="bold" />
                 <p>{sentence}</p>
               </div>
-              {sameAsset && <p className="hint bad">Pick two different assets.</p>}
-              {previewErr && !sameAsset && <p className="hint bad">{previewErr}</p>}
-              {preview?.thinTrigger !== undefined && (
+              {invalid && <p className="hint bad">{invalid}</p>}
+              {previewErr && !invalid && <p className="hint bad">{previewErr}</p>}
+              {preview?.thinTrigger !== undefined && !invalid && (
                 <p className="hint warn">
                   Fees and spread on this route are about {preview.thinTrigger.toFixed(1)}%, which would eat most of a {preview.draft.thresholdPct}% move. Consider a
-                  trigger of {Math.ceil(preview.thinTrigger * 3)}% or more.
+                  trigger of {Math.ceil(preview.thinTrigger * 2)}% or more.
                 </p>
               )}
             </div>
 
-            <div className="plan four">
+            <div className={`plan four${stale ? " stale" : ""}`} aria-busy={stale}>
               <div>
                 <div className="k">Switch fires at</div>
                 <div className="v">
@@ -370,7 +385,7 @@ export function NewSwitch() {
             ) : (
               <div className="callout live">
                 <strong>Live: real tokens move when it fires</strong>
-                Up to {draft.sizing.kind === "usd" ? fmtUsd(draft.sizing.usd, 0) : `${draft.sizing.shares} ${unitWord}`} of {tokenSymbol(draft.from)}.{" "}
+                Up to {sizeText} of {tokenSymbol(draft.from)}.{" "}
                 {style === "confirm"
                   ? `${fromA.name} charges a 1% transfer fee, so it stays in your wallet until you confirm in one tap.`
                   : `You approve the exact amount once; it stays in your wallet until the switch fires.`}
@@ -404,25 +419,24 @@ export function NewSwitch() {
                 ).map(([k, label]) => (
                   <label key={k}>
                     {label}
-                    <input
-                      type="number"
-                      min={0}
+                    <NumberField
+                      min={k === "confirmations" ? 1 : 0}
                       value={draft.limits[k]}
-                      onChange={(e) => {
+                      onChange={(n) => {
                         if (k === "maxSlippageBps") slippageTouched.current = true;
-                        set({ limits: { ...draft.limits, [k]: Number(e.target.value) } });
+                        setDraft((d) => ({ ...d, limits: { ...d.limits, [k]: n } }));
                       }}
                     />
                   </label>
                 ))}
                 <label>
                   Expires after (days)
-                  <input type="number" min={1} max={90} value={draft.expiresInDays} onChange={(e) => set({ expiresInDays: Number(e.target.value) })} />
+                  <NumberField min={1} max={90} value={draft.expiresInDays} onChange={(n) => set({ expiresInDays: n })} />
                 </label>
               </div>
             </details>
 
-            <button className="btn btn-primary" onClick={create} disabled={!preview || sameAsset || creating || (draft.mode === "live" && !liveReady)}>
+            <button className="btn btn-primary" onClick={create} disabled={stale || creating || (draft.mode === "live" && !liveReady)}>
               {mode === "live" ? <Wallet size={18} weight="bold" /> : <ShieldCheck size={18} weight="bold" />}
               {creating ? "Creating" : mode === "live" ? "Create live switch" : "Create paper switch"}
             </button>

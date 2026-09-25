@@ -14,7 +14,20 @@ Built for Stocklana (Main track, PreStocks bounty).
 
 ## Verified on Solana mainnet
 
-Every live path was dry-run with `simulateTransaction` against current mainnet state, using real token holders as stand-ins (`scripts/simulate.ts`, `scripts/sim-confirm.ts`):
+**Executed.** A live one-tap switch, created in the app, triggered by the engine and confirmed from a wallet:
+
+| | |
+|---|---|
+| Transaction | [`2LxBEz5p…DraCEfvJ`](https://solscan.io/tx/2LxBEz5pmcL9BZkjmuYY3xVtZ5ZieLm9jNZUv4AEU3c4QPtbnwY65XbzRk6HdLLWoBConUiEmrEnZntfDraCEfvJ) |
+| When | 2026-09-25 10:17 UTC, slot 450,323,285 |
+| Switch | OpenAI → Anthropic, one tap |
+| Spent | 0.004884 OPENAI |
+| Received | 0.006181 ANTHROPIC, into a token account created in the same transaction |
+| Route | OpenAI → USDC → SOL → Anthropic via Jupiter, 153k compute units |
+
+OpenAI uses Token-2022's scaled UI amount (multiplier 1.4861347 since 2026-07-17), so 0.004884 OPENAI is 0.003287 in raw token units; explorers that ignore the multiplier show the raw figure. Tandem sizes, quotes and reports every amount in UI units.
+
+**Simulated.** Every live path was also dry-run with `simulateTransaction` against current mainnet state, using real token holders as stand-ins (`scripts/simulate.ts`, `scripts/sim-confirm.ts`):
 
 | Path | Pair | Result |
 |---|---|---|

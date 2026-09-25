@@ -12,6 +12,8 @@ import type { TokenState } from "./tokenState";
 const QUOTE_REFRESH_MS = 30_000;
 const DELEGATION_REFRESH_MS = 30_000;
 const MAX_LIVE_ATTEMPTS = 3;
+/** Once Ready, the trigger condition gets this long to flicker while the user confirms. Safety checks get none. */
+const READY_GRACE_MS = 120_000;
 
 const age = (t: number) => Math.max(0, Math.round(Date.now() / 1000 - t));
 const fmtAge = (s: number) => (s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)}m` : `${Math.round(s / 3600)}h`);
@@ -295,9 +297,10 @@ export class Engine {
     store.touch();
 
     if (intent.status === "ready") {
-      if (!met || failing) {
+      const inGrace = Date.now() - (intent.readyAt ?? 0) < READY_GRACE_MS;
+      if (failing || (!met && !inGrace)) {
         intent.status = "armed";
-        store.event(intent, "warn", `No longer ready (${!met ? "condition reversed" : failing!.label}); back to monitoring`);
+        store.event(intent, "warn", `No longer ready (${failing ? failing.label : "condition reversed"}); back to monitoring`);
       }
       return;
     }
@@ -395,7 +398,9 @@ export class Engine {
     if (intent.status !== "ready") throw new Error("This switch is not ready");
     const fromRef = this.prices.ref(intent.from)?.price;
     const toRef = this.prices.ref(intent.to)?.price;
-    if (!fromRef || !toRef || !conditionMet(toRef / fromRef, intent.triggerRatio, intent.direction)) throw new Error("The trigger condition no longer holds");
+    const inGrace = Date.now() - (intent.readyAt ?? 0) < READY_GRACE_MS;
+    if (!fromRef || !toRef || (!conditionMet(toRef / fromRef, intent.triggerRatio, intent.direction) && !inGrace))
+      throw new Error("The trigger condition no longer holds");
     const checks = this.marketChecks(intent.from, intent.to, intent.limits, intent.mode);
     checks.push(await this.balanceCheck(intent, true));
     const first = await this.quoteSwitch(intent.from, intent.to, BigInt(intent.amountRaw), "confirm", 50, true);
