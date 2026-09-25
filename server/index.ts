@@ -21,10 +21,6 @@ import { TokenState } from "./tokenState";
 const tokens = new TokenState(conn);
 const prices = new PriceService(tokens);
 const engine = new Engine(prices, tokens);
-tokens.start();
-prices.start();
-engine.start();
-telegram.start().catch((e) => console.error("Telegram alerts failed to start:", (e as Error).message));
 
 const app = express();
 app.use(express.json({ limit: "100kb" }));
@@ -382,7 +378,16 @@ if (fs.existsSync(dist)) {
   app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(path.join(dist, "index.html")));
 }
 
-app.listen(config.port, () => {
+// Only the process that holds the port runs the engine, so two servers can never act on the same switches.
+app.listen(config.port, (err?: Error) => {
+  if (err) {
+    console.error(`Port ${config.port} is unavailable (${err.message}). Is Tandem already running? Exiting.`);
+    process.exit(1);
+  }
+  tokens.start();
+  prices.start();
+  engine.start();
+  telegram.start().catch((e) => console.error("Telegram alerts failed to start:", (e as Error).message));
   console.log(`Tandem API on http://localhost:${config.port}`);
   console.log(`  prices: ${prices.sourceNote}`);
   console.log(`  keeper: ${config.keeper?.publicKey.toBase58() ?? "not configured (paper mode only)"}`);
