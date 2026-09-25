@@ -46,6 +46,7 @@ Tandem also corrects for a quoting gap it found: Jupiter quotes include a Token-
 - Fee-aware Jupiter quotes and real Solana transaction construction
 - Paper mode on live prices, with an execution receipt for every switch
 - Wallet signing: one-tap PreStocks execution and automatic delegated xStock execution
+- Telegram alerts when a switch is ready to confirm, completes or fails, with buttons that open the app in a mobile wallet
 
 ## Why
 
@@ -154,6 +155,8 @@ npx tsx scripts/sim-confirm.ts OPENAI ANTHROPIC 0.01   # dry-run a one-tap switc
 | `SOLANA_RPC_URL` | Mainnet RPC; the public endpoint works for demos |
 | `JUPITER_API_URL`, `JUPITER_API_KEY` | Defaults to the keyless `lite-api.jup.ag` |
 | `KEEPER_SECRET_KEY` | Keeper wallet, created by `npm run keygen` |
+| `TELEGRAM_BOT_TOKEN` | Optional. Turns on Telegram alerts; one bot serves every user |
+| `APP_URL` | Public address used in alert links |
 | `LIVE_EXECUTION` | Set to `false` to disable all real switches |
 
 ## Security model

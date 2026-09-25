@@ -4,6 +4,7 @@ import { ArrowRight } from "@phosphor-icons/react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import type { Intent } from "../../shared/types";
 import { IntentList } from "../components/IntentList";
+import { TelegramAlerts } from "../components/TelegramAlerts";
 import { useAppData } from "../state/AppData";
 
 const OPEN = new Set<Intent["status"]>(["armed", "ready", "awaiting_approval", "executing"]);
@@ -76,6 +77,8 @@ export function Switches() {
           New switch
         </Link>
       </div>
+
+      <TelegramAlerts />
 
       <div className="tabs" role="tablist" aria-label="Switches" onKeyDown={onKey}>
         {TABS.map((t) => (

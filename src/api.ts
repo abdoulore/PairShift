@@ -45,4 +45,6 @@ export const api = {
   swapTx: (id: string, owner: string) => call<{ tx: string; quote: QuoteSummary }>(`/intents/${id}/swap-tx`, { owner }),
   executed: (id: string, signedTx: string) => call<{ intent: Intent }>(`/intents/${id}/executed`, { signedTx }),
   revoke: (id: string, signedTx: string) => call<{ signature: string }>(`/intents/${id}/revoke`, { signedTx }),
+  telegram: (owner: string) => call<{ enabled: boolean; bot?: string; linked: boolean }>(`/telegram?owner=${encodeURIComponent(owner)}`),
+  telegramLink: (body: { owner: string; guest?: string; ts?: number; signature?: string }) => call<{ url: string }>("/telegram/link", body),
 };

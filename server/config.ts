@@ -23,5 +23,8 @@ export const config = {
   keeper: loadKeeper(),
   liveExecution: (process.env.LIVE_EXECUTION ?? "true") !== "false",
   dataDir: process.env.DATA_DIR ?? "data",
+  telegramToken: process.env.TELEGRAM_BOT_TOKEN?.trim() || undefined,
+  /** Public address of the app, used in alert links. */
+  appUrl: (process.env.APP_URL ?? "https://tandem.moonrider.online").replace(/\/$/, ""),
   pollMs: 2_000,
 };

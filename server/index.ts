@@ -9,12 +9,13 @@ import { ASSETS, ASSET_BY_TICKER, getAsset, tokenSymbol } from "../shared/assets
 import { pairRatio, rawFromUi, sharesForSizing, triggerRatio, uiFromRaw } from "../shared/math";
 import { parseIntent } from "../shared/parser";
 import { DEFAULT_LIMITS, PRE_IPO_SLIPPAGE_BPS, canonicalDraft, type ExecStyle, type Intent, type IntentDraft, type Status } from "../shared/types";
-import { cancelMessage, intentMessage, verify } from "./auth";
+import { cancelMessage, intentMessage, telegramMessage, verify } from "./auth";
 import { config } from "./config";
 import { Engine } from "./engine";
 import { PriceService } from "./prices";
 import { ata, buildApprovalTx, buildRevokeTx, conn, submitSigned, tokenAccountState } from "./solana";
 import { store } from "./store";
+import { telegram } from "./telegram";
 import { TokenState } from "./tokenState";
 
 const tokens = new TokenState(conn);
@@ -23,6 +24,7 @@ const engine = new Engine(prices, tokens);
 tokens.start();
 prices.start();
 engine.start();
+telegram.start().catch((e) => console.error("Telegram alerts failed to start:", (e as Error).message));
 
 const app = express();
 app.use(express.json({ limit: "100kb" }));
@@ -38,6 +40,7 @@ app.use("/api/parse", limit(60));
 app.use("/api/pair", limit(60));
 app.post("/api/intents", limit(10));
 app.use("/api/intents/:id", limit(20));
+app.use("/api/telegram", limit(20));
 
 type Handler = (req: Request, res: Response) => Promise<unknown> | unknown;
 const route = (fn: Handler) => async (req: Request, res: Response) => {
@@ -344,6 +347,30 @@ app.post(
     );
     if (!touchesApproval) throw new Error("Not a revoke for this switch");
     return { signature: await submitSigned(String(req.body.signedTx)) };
+  }),
+);
+
+// ---- Telegram alerts -------------------------------------------------------------
+
+const isGuest = (o: unknown): o is string => typeof o === "string" && /^guest:[\w-]{4,64}$/.test(o);
+
+app.get(
+  "/api/telegram",
+  route((req) => ({ enabled: telegram.enabled, bot: telegram.bot, linked: telegram.linked(String(req.query.owner ?? "")) })),
+);
+
+// Wallets prove ownership by signing; paper users link by their browser id.
+app.post(
+  "/api/telegram/link",
+  route((req) => {
+    const owner = req.body?.owner;
+    if (isGuest(owner)) return { url: telegram.linkUrl([owner]) };
+    if (typeof owner !== "string") throw new Error("Missing owner");
+    const ts = Number(req.body?.ts);
+    const err = verify(owner, telegramMessage(owner, ts), String(req.body?.signature ?? ""), ts);
+    if (err) throw new Error(err);
+    const guest = req.body?.guest;
+    return { url: telegram.linkUrl(isGuest(guest) ? [owner, guest] : [owner]) };
   }),
 );
 
